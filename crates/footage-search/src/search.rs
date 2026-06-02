@@ -31,7 +31,13 @@ pub async fn search_with_embedding(
         "requesting vector-store candidates"
     );
 
-    let mut hits = store.search(&query, candidate_limit).await?;
+    let mut hits = if let Some(source_file) = config.source_file.as_deref() {
+        store
+            .search_by_source_file(&query, candidate_limit, source_file)
+            .await?
+    } else {
+        store.search(&query, candidate_limit).await?
+    };
     let raw_candidate_count = hits.len();
     info!(
         raw_candidate_count,

@@ -12,3 +12,5 @@ qdrant/
 storage/
 snapshots/
 *.mp4
+clips/
+uploads/

@@ -12,6 +12,7 @@ import {
 
 export interface MatchResult {
 	file: string;
+	source_file: string;
 	start: number;
 	end: number;
 	score: number;
@@ -25,6 +26,7 @@ export interface SearchResponse {
 
 export interface IndexResponse {
 	file: string;
+	source_file: string;
 	chunks: number;
 }
 
@@ -54,7 +56,7 @@ export async function indexVideo(file: File): Promise<IndexResponse> {
 	return json(await fetch(`${API_BASE}/index`, { method: 'POST', body }));
 }
 
-export async function search(query: string): Promise<SearchResponse> {
+export async function search(query: string, sourceFile?: string): Promise<SearchResponse> {
 	return json(
 		await fetch(`${API_BASE}/search`, {
 			method: 'POST',
@@ -63,20 +65,22 @@ export async function search(query: string): Promise<SearchResponse> {
 				query,
 				results: SEARCH_RESULTS,
 				threshold: SEARCH_THRESHOLD,
-				dedupe_threshold: SEARCH_DEDUPE_THRESHOLD
+				dedupe_threshold: SEARCH_DEDUPE_THRESHOLD,
+				source_file: sourceFile
 			})
 		})
 	);
 }
 
-export async function highlights(): Promise<SearchResponse> {
+export async function highlights(sourceFile?: string): Promise<SearchResponse> {
 	return json(
 		await fetch(`${API_BASE}/highlights`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
 				count: HIGHLIGHTS_COUNT,
-				method: HIGHLIGHTS_METHOD
+				method: HIGHLIGHTS_METHOD,
+				source_file: sourceFile
 			})
 		})
 	);

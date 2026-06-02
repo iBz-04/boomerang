@@ -22,6 +22,7 @@ const SEARCH_TARGET_FPS: u32 = 4;
 #[derive(Serialize)]
 pub struct IndexResponse {
     pub file: String,
+    pub source_file: String,
     pub chunks: usize,
 }
 
@@ -136,6 +137,7 @@ pub async fn index_handler(
 
     Ok(Json(IndexResponse {
         file: filename,
+        source_file: video_file_str,
         chunks: indexed_count,
     }))
 }

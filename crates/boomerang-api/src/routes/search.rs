@@ -9,6 +9,7 @@ use tracing::{debug, info, info_span, Instrument};
 
 use crate::error::ApiError;
 use crate::routes::match_result::{build_match_results, SearchResponse};
+use crate::routes::temporal_refine::refine_search_results;
 use crate::state::AppState;
 
 const MAX_SEARCH_RESULTS: usize = 10;
@@ -19,6 +20,7 @@ pub struct SearchRequest {
     pub results: usize,
     pub threshold: f64,
     pub dedupe_threshold: Option<f64>,
+    pub source_file: Option<String>,
 }
 
 async fn resolve_space(backend: &str, model: Option<&str>) -> Result<EmbeddingSpace, ApiError> {
@@ -42,7 +44,8 @@ pub async fn search_handler(
         query_len = req.query.chars().count(),
         results = req.results,
         threshold = req.threshold,
-        dedupe_threshold = ?req.dedupe_threshold
+        dedupe_threshold = ?req.dedupe_threshold,
+        source_file = ?req.source_file
     );
 
     search_handler_inner(state, req).instrument(span).await
@@ -60,6 +63,7 @@ async fn search_handler_inner(
     let limit = validate_result_limit(req.results)?;
     let threshold = validate_threshold(req.threshold)?;
     let dedupe_threshold = validate_optional_dedupe(req.dedupe_threshold)?;
+    let source_file = validate_optional_source_file(req.source_file)?;
 
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let embedder = semantic_embed::create_embedder(
@@ -88,11 +92,13 @@ async fn search_handler_inner(
         max_results: limit,
         threshold,
         dedupe_threshold,
+        source_file: source_file.clone(),
     };
 
     let results =
         footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
             .await?;
+    let results = refine_search_results(results, &embeddings, embedder.as_ref()).await?;
 
     let rewritten_query = search_queries.join(" · ");
     let response_queries = search_queries;
@@ -187,6 +193,21 @@ fn validate_optional_dedupe(threshold: Option<f64>) -> Result<Option<f64>, ApiEr
     Ok(threshold)
 }
 
+fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<String>, ApiError> {
+    match source_file {
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "source_file must not be blank when provided".to_string(),
+                ));
+            }
+            Ok(Some(trimmed.to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +228,14 @@ mod tests {
         assert!(validate_optional_dedupe(Some(-0.1)).is_err());
         assert!(validate_optional_dedupe(Some(1.1)).is_err());
         assert!(validate_optional_dedupe(None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_optional_source_file_rejects_blank_values() {
+        assert!(validate_optional_source_file(Some("   ".to_string())).is_err());
+        assert_eq!(
+            validate_optional_source_file(Some(" /tmp/video.mp4 ".to_string())).unwrap(),
+            Some("/tmp/video.mp4".to_string())
+        );
     }
 }

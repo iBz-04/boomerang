@@ -191,6 +191,7 @@ dependencies = [
  "boomerang-core",
  "bytes",
  "chrono",
+ "clip-trim",
  "dotenvy",
  "footage-search",
  "semantic-embed",

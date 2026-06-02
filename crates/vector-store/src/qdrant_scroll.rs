@@ -13,21 +13,65 @@ pub(crate) async fn scroll_by_source_file(
     source_file: &str,
     limit: usize,
 ) -> Result<ScrollResponse, CoreError> {
+    scroll_source_file_page(
+        client,
+        base_url,
+        collection_name,
+        source_file,
+        None,
+        limit,
+        false,
+    )
+    .await
+}
+
+pub(crate) async fn scroll_all_points_by_source_file(
+    client: &reqwest::Client,
+    base_url: &str,
+    collection_name: &str,
+    source_file: &str,
+    offset: Option<String>,
+) -> Result<ScrollResponse, CoreError> {
+    scroll_source_file_page(
+        client,
+        base_url,
+        collection_name,
+        source_file,
+        offset,
+        100,
+        true,
+    )
+    .await
+}
+
+async fn scroll_source_file_page(
+    client: &reqwest::Client,
+    base_url: &str,
+    collection_name: &str,
+    source_file: &str,
+    offset: Option<String>,
+    limit: usize,
+    with_vector: bool,
+) -> Result<ScrollResponse, CoreError> {
+    let mut request = serde_json::json!({
+        "filter": {
+            "must": [{
+                "key": "source_file",
+                "match": { "value": source_file }
+            }]
+        },
+        "limit": limit,
+        "with_payload": true,
+        "with_vector": with_vector
+    });
+    if let Some(value) = offset {
+        request["offset"] = serde_json::Value::String(value);
+    }
     let response = client
         .post(format!(
             "{base_url}/collections/{collection_name}/points/scroll"
         ))
-        .json(&serde_json::json!({
-            "filter": {
-                "must": [{
-                    "key": "source_file",
-                    "match": { "value": source_file }
-                }]
-            },
-            "limit": limit,
-            "with_payload": true,
-            "with_vector": false
-        }))
+        .json(&request)
         .send()
         .await
         .map_err(|error| CoreError::Store(format!("scroll failed: {error}")))?;
@@ -73,7 +117,7 @@ pub(crate) async fn unique_source_files(
     let mut offset: Option<String> = None;
     let mut source_files = BTreeSet::new();
     loop {
-        let scroll = scroll_source_file_page(client, base_url, collection_name, offset).await?;
+        let scroll = scroll_source_page(client, base_url, collection_name, offset).await?;
         for point in &scroll.result.points {
             if let Some(payload) = &point.payload {
                 source_files.insert(payload.source_file.clone());
@@ -87,7 +131,7 @@ pub(crate) async fn unique_source_files(
     Ok(source_files.into_iter().collect())
 }
 
-async fn scroll_source_file_page(
+async fn scroll_source_page(
     client: &reqwest::Client,
     base_url: &str,
     collection_name: &str,

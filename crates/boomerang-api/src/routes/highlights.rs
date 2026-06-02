@@ -14,6 +14,7 @@ use crate::state::AppState;
 pub struct HighlightsRequest {
     pub count: usize,
     pub method: String,
+    pub source_file: Option<String>,
 }
 
 /// Helper to resolve the active indexed space or fall back to defaults.
@@ -34,6 +35,7 @@ pub async fn highlights_handler(
 ) -> Result<impl IntoResponse, ApiError> {
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
+    let source_file = validate_optional_source_file(req.source_file)?;
 
     if req.count == 0 {
         return Err(ApiError::BadRequest(
@@ -60,6 +62,7 @@ pub async fn highlights_handler(
         neighbors: 10,
         dedupe_threshold: 0.9,
         exclude_baseline: false,
+        source_file,
     };
 
     let results = footage_search::rank_highlights(store.as_ref(), &config).await?;
@@ -79,4 +82,33 @@ pub async fn highlights_handler(
         rewritten_query: None,
         search_queries: None,
     }))
+}
+
+fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<String>, ApiError> {
+    match source_file {
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "source_file must not be blank when provided".to_string(),
+                ));
+            }
+            Ok(Some(trimmed.to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_optional_source_file_rejects_blank_values() {
+        assert!(validate_optional_source_file(Some("".to_string())).is_err());
+        assert_eq!(
+            validate_optional_source_file(Some(" /tmp/video.mp4 ".to_string())).unwrap(),
+            Some("/tmp/video.mp4".to_string())
+        );
+    }
 }

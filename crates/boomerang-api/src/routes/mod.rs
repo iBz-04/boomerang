@@ -4,6 +4,7 @@ pub mod highlights;
 pub mod index;
 pub mod match_result;
 pub mod search;
+pub mod temporal_refine;
 
 use axum::{extract::DefaultBodyLimit, routing::post, Router};
 use tower_http::cors::{Any, CorsLayer};

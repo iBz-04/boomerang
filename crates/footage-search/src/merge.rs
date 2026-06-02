@@ -23,7 +23,13 @@ pub async fn search_with_embeddings(
 
     for query_embedding in query_embeddings {
         let query = Embedding::new((*query_embedding).to_vec());
-        let mut hits = store.search(&query, per_query_candidates).await?;
+        let mut hits = if let Some(source_file) = config.source_file.as_deref() {
+            store
+                .search_by_source_file(&query, per_query_candidates, source_file)
+                .await?
+        } else {
+            store.search(&query, per_query_candidates).await?
+        };
         merge_hits(&mut merged, hits.drain(..));
     }
 
@@ -69,10 +75,7 @@ mod tests {
     #[test]
     fn test_merge_hits_keeps_highest_score() {
         let mut merged = vec![hit("/v/a.mp4", 0.0, 8.0, 0.5)];
-        merge_hits(
-            &mut merged,
-            [hit("/v/a.mp4", 0.0, 8.0, 0.72)].into_iter(),
-        );
+        merge_hits(&mut merged, [hit("/v/a.mp4", 0.0, 8.0, 0.72)].into_iter());
         assert_eq!(merged.len(), 1);
         assert!((merged[0].similarity_score - 0.72).abs() < f64::EPSILON);
     }
@@ -80,10 +83,7 @@ mod tests {
     #[test]
     fn test_merge_hits_keeps_distinct_chunks() {
         let mut merged = vec![hit("/v/a.mp4", 0.0, 8.0, 0.6)];
-        merge_hits(
-            &mut merged,
-            [hit("/v/a.mp4", 8.0, 16.0, 0.55)].into_iter(),
-        );
+        merge_hits(&mut merged, [hit("/v/a.mp4", 8.0, 16.0, 0.55)].into_iter());
         assert_eq!(merged.len(), 2);
     }
 }

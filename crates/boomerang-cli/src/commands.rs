@@ -186,6 +186,7 @@ pub async fn search(args: SearchArgs) -> Result<()> {
         max_results: args.results,
         threshold: args.threshold,
         dedupe_threshold: args.dedupe,
+        source_file: None,
     };
 
     let results =
@@ -242,6 +243,7 @@ pub async fn img(args: ImgArgs) -> Result<()> {
         max_results: args.results,
         threshold: args.threshold,
         dedupe_threshold: args.dedupe,
+        source_file: None,
     };
 
     let results =
@@ -301,6 +303,7 @@ pub async fn highlights(args: HighlightsArgs) -> Result<()> {
         neighbors: args.neighbors,
         dedupe_threshold: args.dedupe,
         exclude_baseline: args.exclude_baseline,
+        source_file: None,
     };
 
     let results = footage_search::rank_highlights(store.as_ref(), &config).await?;

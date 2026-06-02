@@ -163,7 +163,10 @@ fn dedupe_queries(mut candidates: Vec<String>) -> Vec<String> {
             continue;
         }
         let key = normalize_key(trimmed);
-        if out.iter().any(|existing: &String| normalize_key(existing) == key) {
+        if out
+            .iter()
+            .any(|existing: &String| normalize_key(existing) == key)
+        {
             continue;
         }
         out.push(trimmed.to_string());

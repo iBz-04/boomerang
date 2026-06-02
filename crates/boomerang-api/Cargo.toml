@@ -41,3 +41,4 @@ video-chunking = { workspace = true }
 semantic-embed = { workspace = true }
 vector-store = { workspace = true }
 footage-search = { workspace = true }
+clip-trim = { workspace = true }

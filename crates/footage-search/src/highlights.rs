@@ -15,7 +15,11 @@ pub async fn rank_highlights(
     store: &dyn VectorStore,
     config: &HighlightConfig,
 ) -> Result<Vec<SearchResult>, CoreError> {
-    let (embeddings, metadatas) = store.fetch_all().await?;
+    let (embeddings, metadatas) = if let Some(source_file) = config.source_file.as_deref() {
+        store.fetch_by_source_file(source_file).await?
+    } else {
+        store.fetch_all().await?
+    };
     let n = embeddings.len();
 
     if n == 0 {

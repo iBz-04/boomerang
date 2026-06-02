@@ -5,6 +5,7 @@
 	let videoEl = $state<HTMLVideoElement>();
 
 	let videoUrl = $state('');
+	let indexedSourceFile = $state('');
 	let query = $state('');
 	let status = $state<'idle' | 'indexing' | 'ready' | 'searching'>('idle');
 	let results = $state<MatchResult[]>([]);
@@ -52,10 +53,12 @@
 		results = [];
 		rewrittenQuery = '';
 		searchQueries = [];
+		indexedSourceFile = '';
 		videoUrl = URL.createObjectURL(file);
 		status = 'indexing';
 		try {
-			await indexVideo(file);
+			const response = await indexVideo(file);
+			indexedSourceFile = response.source_file;
 			status = 'ready';
 		} catch (e) {
 			error = (e as Error).message;
@@ -112,7 +115,7 @@
 	}
 
 	function runSearch() {
-		if (query.trim()) showSearch(search(query));
+		if (query.trim()) showSearch(search(query, indexedSourceFile || undefined));
 	}
 </script>
 
@@ -173,7 +176,11 @@
 			<button class="btn primary" onclick={runSearch} disabled={busy || !hasVideo || !query.trim()}>
 				<span class="ico">◎</span> SEARCH TIME
 			</button>
-			<button class="btn ghost" onclick={() => showHighlights(highlights())} disabled={busy || !hasVideo}>
+			<button
+				class="btn ghost"
+				onclick={() => showHighlights(highlights(indexedSourceFile || undefined))}
+				disabled={busy || !hasVideo}
+			>
 				<span class="ico">⤬</span> SURFACE HIGHLIGHTS
 			</button>
 

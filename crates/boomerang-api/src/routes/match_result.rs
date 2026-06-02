@@ -11,6 +11,7 @@ use crate::error::ApiError;
 #[derive(Serialize)]
 pub struct MatchResult {
     pub file: String,
+    pub source_file: String,
     pub start: f64,
     pub end: f64,
     pub score: f64,
@@ -54,6 +55,7 @@ fn build_match_result(result: SearchResult) -> Result<MatchResult, ApiError> {
 
     Ok(MatchResult {
         file: file_display,
+        source_file: result.source_file,
         start: result.start_time,
         end: result.end_time,
         score: result.similarity_score,
@@ -71,6 +73,7 @@ mod tests {
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].file, "front.mp4");
+        assert_eq!(matches[0].source_file, "/tmp/camera/front.mp4");
         assert_eq!(matches[0].start, 12.5);
         assert_eq!(matches[0].end, 42.0);
         assert_eq!(matches[0].score, 0.87);

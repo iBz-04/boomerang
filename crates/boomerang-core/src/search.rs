@@ -35,6 +35,8 @@ pub struct SearchConfig {
     pub threshold: f64,
     /// Deduplication similarity ceiling (None = disabled).
     pub dedupe_threshold: Option<f64>,
+    /// Optional source file scope for in-video retrieval.
+    pub source_file: Option<String>,
 }
 
 impl Default for SearchConfig {
@@ -43,6 +45,7 @@ impl Default for SearchConfig {
             max_results: 5,
             threshold: 0.41,
             dedupe_threshold: None,
+            source_file: None,
         }
     }
 }
@@ -60,6 +63,8 @@ pub struct HighlightConfig {
     pub dedupe_threshold: f64,
     /// Whether to exclude the baseline (half nearest centroid).
     pub exclude_baseline: bool,
+    /// Optional source file scope for per-video highlight search.
+    pub source_file: Option<String>,
 }
 
 impl Default for HighlightConfig {
@@ -70,6 +75,7 @@ impl Default for HighlightConfig {
             neighbors: 10,
             dedupe_threshold: 0.9,
             exclude_baseline: false,
+            source_file: None,
         }
     }
 }

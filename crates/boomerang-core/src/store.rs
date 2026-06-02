@@ -38,6 +38,14 @@ pub trait VectorStore: Send + Sync {
     async fn search(&self, query: &Embedding, limit: usize)
         -> Result<Vec<SearchResult>, CoreError>;
 
+    /// Search within one indexed source file.
+    async fn search_by_source_file(
+        &self,
+        query: &Embedding,
+        limit: usize,
+        source_file: &str,
+    ) -> Result<Vec<SearchResult>, CoreError>;
+
     /// Check if a chunk ID already exists.
     async fn contains(&self, id: &ChunkId) -> Result<bool, CoreError>;
 
@@ -49,6 +57,12 @@ pub trait VectorStore: Send + Sync {
 
     /// Get all embeddings and metadata (for highlight scoring).
     async fn fetch_all(&self) -> Result<(Vec<Embedding>, Vec<ChunkMetadata>), CoreError>;
+
+    /// Get all embeddings and metadata for one source file.
+    async fn fetch_by_source_file(
+        &self,
+        source_file: &str,
+    ) -> Result<(Vec<Embedding>, Vec<ChunkMetadata>), CoreError>;
 
     /// Return store statistics.
     async fn stats(&self) -> Result<StoreStats, CoreError>;

@@ -15,6 +15,12 @@ struct CreateCollectionRequest {
 }
 
 #[derive(Debug, Serialize)]
+struct CreatePayloadIndexRequest {
+    field_name: String,
+    field_schema: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 struct VectorConfig {
     size: u64,
     distance: &'static str,
@@ -72,6 +78,8 @@ struct SearchRequest {
     limit: usize,
     with_payload: bool,
     with_vector: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filter: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,13 +248,51 @@ pub(crate) async fn upsert_points(
     Ok(())
 }
 
+pub(crate) async fn create_keyword_index(
+    client: &reqwest::Client,
+    base_url: &str,
+    collection_name: &str,
+    field_name: &str,
+) -> Result<(), CoreError> {
+    let response = client
+        .put(format!("{base_url}/collections/{collection_name}/index"))
+        .json(&CreatePayloadIndexRequest {
+            field_name: field_name.to_string(),
+            field_schema: "keyword",
+        })
+        .send()
+        .await
+        .map_err(|error| CoreError::Store(format!("create payload index failed: {error}")))?;
+    if !response.status().is_success() {
+        let body = response.text().await.map_err(|error| {
+            CoreError::Store(format!(
+                "failed to read create payload index response: {error}"
+            ))
+        })?;
+        return Err(CoreError::Store(format!(
+            "failed to create payload index for {collection_name}.{field_name}: {}",
+            body,
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) async fn search_points(
     client: &reqwest::Client,
     base_url: &str,
     collection_name: &str,
     query: &Embedding,
     limit: usize,
+    source_file: Option<&str>,
 ) -> Result<Vec<ScoredPoint>, CoreError> {
+    let filter = source_file.map(|value| {
+        serde_json::json!({
+            "must": [{
+                "key": "source_file",
+                "match": { "value": value }
+            }]
+        })
+    });
     let response = client
         .post(format!(
             "{base_url}/collections/{collection_name}/points/search"
@@ -256,6 +302,7 @@ pub(crate) async fn search_points(
             limit,
             with_payload: true,
             with_vector: false,
+            filter,
         })
         .send()
         .await

@@ -73,3 +73,14 @@ cargo run -p boomerang-cli -- search "red truck running a stop sign"
 - Test naming: `test_<unit>_<scenario>_<expected>`.
 - Use `proptest` for numeric logic, `insta` for snapshot tests.
 
+## Citation
+
+```bibtex
+@software{
+  author       = {Rayamah, Ibrahim},
+  title        = {Boomerang, Ultra fast semantic video search},
+  year         = {2025},
+  publisher    = {GitHub},
+  url={https://github.com/iBz-04/boomerang}
+}
+

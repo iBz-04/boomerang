@@ -168,10 +168,21 @@ fn safe_filename(source_file: &str, start: f64, end: f64) -> String {
 
     let safe_base: String = base
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
-    format!("match_{}_{}-{}.mp4", safe_base, fmt_time(start), fmt_time(end))
+    format!(
+        "match_{}_{}-{}.mp4",
+        safe_base,
+        fmt_time(start),
+        fmt_time(end)
+    )
 }
 
 /// Find a working ffmpeg binary.
@@ -188,7 +199,11 @@ async fn find_ffmpeg() -> Result<String, TrimError> {
         _ => {}
     }
 
-    for candidate in &["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"] {
+    for candidate in &[
+        "/usr/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/opt/homebrew/bin/ffmpeg",
+    ] {
         if Path::new(candidate).exists() {
             return Ok(candidate.to_string());
         }

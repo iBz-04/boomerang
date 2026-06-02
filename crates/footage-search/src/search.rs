@@ -17,7 +17,12 @@ pub async fn search_with_embedding(
     let mut hits = store.search(&query, config.max_results).await?;
 
     // Sort by similarity descending
-    hits.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.similarity_score
+            .partial_cmp(&a.similarity_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    hits.retain(|hit| hit.similarity_score >= config.threshold);
 
     // Apply deduplication if configured
     if let Some(threshold) = config.dedupe_threshold {
@@ -34,10 +39,7 @@ pub async fn search_with_embedding(
 ///
 /// Uses cosine similarity of embeddings. When embeddings aren't available,
 /// falls back to a simpler heuristic based on source file + time proximity.
-fn deduplicate_results(
-    results: Vec<SearchResult>,
-    threshold: f64,
-) -> Vec<SearchResult> {
+fn deduplicate_results(results: Vec<SearchResult>, threshold: f64) -> Vec<SearchResult> {
     let mut kept: Vec<SearchResult> = Vec::new();
 
     for result in results {
@@ -100,5 +102,16 @@ mod tests {
 
         let deduped = deduplicate_results(results, 0.9);
         assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn test_threshold_filter_removes_low_confidence_results() {
+        let mut results = vec![
+            make_result("/videos/a.mp4", 0.0, 30.0, 0.9),
+            make_result("/videos/b.mp4", 0.0, 30.0, 0.2),
+        ];
+        results.retain(|hit| hit.similarity_score >= 0.5);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].source_file, "/videos/a.mp4");
     }
 }

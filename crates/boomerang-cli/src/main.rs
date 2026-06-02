@@ -56,6 +56,10 @@ struct IndexArgs {
     #[arg(long, default_value = "gemini")]
     backend: String,
 
+    /// Optional model override for backends that support multiple models.
+    #[arg(long)]
+    model: Option<String>,
+
     /// Duration of each chunk in seconds.
     #[arg(long, default_value = "30")]
     chunk_duration: u32,
@@ -85,6 +89,14 @@ struct IndexArgs {
 struct SearchArgs {
     /// Natural language search query.
     query: String,
+
+    /// Optional embedding backend override.
+    #[arg(long)]
+    backend: Option<String>,
+
+    /// Optional model override for backends that support multiple models.
+    #[arg(long)]
+    model: Option<String>,
 
     /// Number of results to return.
     #[arg(short = 'n', long, default_value = "5")]
@@ -120,6 +132,14 @@ struct ImgArgs {
     /// Path to the reference image.
     image_path: String,
 
+    /// Optional embedding backend override.
+    #[arg(long)]
+    backend: Option<String>,
+
+    /// Optional model override for backends that support multiple models.
+    #[arg(long)]
+    model: Option<String>,
+
     /// Number of results to return.
     #[arg(short = 'n', long, default_value = "5")]
     results: usize,
@@ -150,6 +170,14 @@ struct HighlightsArgs {
     /// Number of highlights to return.
     #[arg(short = 'n', long, default_value = "5")]
     count: usize,
+
+    /// Optional embedding backend override.
+    #[arg(long)]
+    backend: Option<String>,
+
+    /// Optional model override for backends that support multiple models.
+    #[arg(long)]
+    model: Option<String>,
 
     /// Scoring method: centroid, knn, lof.
     #[arg(long, default_value = "knn")]

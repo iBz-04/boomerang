@@ -67,9 +67,9 @@ pub async fn chunk_video(
     config: &ChunkingConfig,
     output_dir: &Path,
 ) -> Result<Vec<VideoChunk>, ChunkingError> {
-    let video_path = video_path.canonicalize().map_err(|e| {
-        ChunkingError::ExtractionFailed(format!("cannot resolve path: {e}"))
-    })?;
+    let video_path = video_path
+        .canonicalize()
+        .map_err(|e| ChunkingError::ExtractionFailed(format!("cannot resolve path: {e}")))?;
 
     let ffmpeg_path = ffmpeg::find_ffmpeg().await?;
     let duration = ffmpeg::get_duration(&video_path, &ffmpeg_path).await?;
@@ -211,7 +211,11 @@ pub(crate) mod ffmpeg {
         }
 
         // Try common paths
-        for candidate in &["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"] {
+        for candidate in &[
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/opt/homebrew/bin/ffmpeg",
+        ] {
             if Path::new(candidate).exists() {
                 return Ok(candidate.to_string());
             }
@@ -273,8 +277,9 @@ pub(crate) mod ffmpeg {
             .map_err(|e| ChunkingError::DurationParse(e.to_string()))?;
 
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let duration = super::parse_duration_line(&stderr)
-            .ok_or_else(|| ChunkingError::DurationParse("no duration in ffmpeg output".to_string()))?;
+        let duration = super::parse_duration_line(&stderr).ok_or_else(|| {
+            ChunkingError::DurationParse("no duration in ffmpeg output".to_string())
+        })?;
         Ok(duration)
     }
 }

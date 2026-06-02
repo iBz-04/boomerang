@@ -7,6 +7,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use boomerang_core::chunk::ChunkingConfig;
 use boomerang_core::search::{HighlightConfig, SearchConfig};
+use boomerang_core::types::EmbeddingSpace;
 use tracing::info;
 
 use crate::{HighlightsArgs, ImgArgs, IndexArgs, RemoveArgs, SearchArgs};
@@ -25,6 +26,28 @@ pub async fn init() -> Result<()> {
 
     info!("Setup complete. Run 'boomerang index <directory>' to get started.");
     Ok(())
+}
+
+fn render_space(space: &EmbeddingSpace) -> String {
+    match &space.model {
+        Some(model) => format!("{} ({model})", space.backend),
+        None => space.backend.to_string(),
+    }
+}
+
+async fn resolve_space(backend: Option<&str>, model: Option<&str>) -> Result<EmbeddingSpace> {
+    if let Some(backend_name) = backend {
+        let embedder = semantic_embed::create_embedder(backend_name, model)
+            .context("failed to create embedder for requested backend")?;
+        return embedder
+            .embedding_space()
+            .context("failed to resolve requested embedding space");
+    }
+
+    vector_store::detect_space("qdrant")
+        .await
+        .context("failed to detect indexed embedding space")?
+        .context("no indexed embedding space found")
 }
 
 /// Index video footage into the vector store.
@@ -57,11 +80,15 @@ pub async fn index(args: IndexArgs) -> Result<()> {
     }
 
     // Create embedder
-    let embedder = semantic_embed::create_embedder(&args.backend, None)
+    let embedder = semantic_embed::create_embedder(&args.backend, args.model.as_deref())
         .context("failed to create embedder")?;
+    let embedding_space = embedder
+        .embedding_space()
+        .context("failed to resolve embedding space")?;
 
     // Create vector store
-    let store = vector_store::create_store("qdrant", None).await
+    let store = vector_store::create_store("qdrant", &embedding_space)
+        .await
         .context("failed to create vector store")?;
 
     let tmp_dir = tempfile::tempdir()?;
@@ -111,8 +138,9 @@ pub async fn index(args: IndexArgs) -> Result<()> {
                 start_time: chunk.time_range.start,
                 end_time: chunk.time_range.end,
                 indexed_at: chrono::Utc::now(),
-                backend: embedder.backend_name().to_string(),
-                model: None,
+                backend: embedding_space.backend,
+                model: embedding_space.model.clone(),
+                dimensions: embedding_space.dimensions,
             };
 
             store.add(&chunk.id, &embedding, &metadata).await?;
@@ -132,8 +160,12 @@ pub async fn index(args: IndexArgs) -> Result<()> {
 
 /// Search indexed footage with a text query.
 pub async fn search(args: SearchArgs) -> Result<()> {
-    let embedder = semantic_embed::create_embedder("gemini", None)?;
-    let store = vector_store::create_store("qdrant", None).await?;
+    let embedding_space = resolve_space(args.backend.as_deref(), args.model.as_deref()).await?;
+    let embedder = semantic_embed::create_embedder(
+        embedding_space.backend.as_str(),
+        embedding_space.model.as_deref(),
+    )?;
+    let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
     let query_embedding = embedder.embed_query(&args.query).await?;
 
@@ -143,15 +175,12 @@ pub async fn search(args: SearchArgs) -> Result<()> {
         dedupe_threshold: args.dedupe,
     };
 
-    let results = footage_search::search_by_text(
-        store.as_ref(),
-        query_embedding.as_slice(),
-        &search_config,
-    )
-    .await?;
+    let results =
+        footage_search::search_by_text(store.as_ref(), query_embedding.as_slice(), &search_config)
+            .await?;
 
     if results.is_empty() {
-        info!("no results found");
+        info!(space = %render_space(&embedding_space), "no results found");
         return Ok(());
     }
 
@@ -187,8 +216,12 @@ pub async fn search(args: SearchArgs) -> Result<()> {
 
 /// Search indexed footage with an image query.
 pub async fn img(args: ImgArgs) -> Result<()> {
-    let embedder = semantic_embed::create_embedder("gemini", None)?;
-    let store = vector_store::create_store("qdrant", None).await?;
+    let embedding_space = resolve_space(args.backend.as_deref(), args.model.as_deref()).await?;
+    let embedder = semantic_embed::create_embedder(
+        embedding_space.backend.as_str(),
+        embedding_space.model.as_deref(),
+    )?;
+    let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
     let image_embedding = embedder.embed_image(&args.image_path).await?;
 
@@ -198,15 +231,12 @@ pub async fn img(args: ImgArgs) -> Result<()> {
         dedupe_threshold: args.dedupe,
     };
 
-    let results = footage_search::search_by_image(
-        store.as_ref(),
-        image_embedding.as_slice(),
-        &search_config,
-    )
-    .await?;
+    let results =
+        footage_search::search_by_image(store.as_ref(), image_embedding.as_slice(), &search_config)
+            .await?;
 
     if results.is_empty() {
-        info!("no results found");
+        info!(space = %render_space(&embedding_space), "no results found");
         return Ok(());
     }
 
@@ -239,13 +269,17 @@ pub async fn img(args: ImgArgs) -> Result<()> {
 
 /// Rank the most anomalous clips in the index.
 pub async fn highlights(args: HighlightsArgs) -> Result<()> {
-    let store = vector_store::create_store("qdrant", None).await?;
+    let embedding_space = resolve_space(args.backend.as_deref(), args.model.as_deref()).await?;
+    let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
     let method = match args.method.as_str() {
         "centroid" => boomerang_core::types::ScoringMethod::Centroid,
         "knn" => boomerang_core::types::ScoringMethod::Knn,
         "lof" => boomerang_core::types::ScoringMethod::Lof,
-        _ => anyhow::bail!("unknown scoring method: {}. Use centroid, knn, or lof.", args.method),
+        _ => anyhow::bail!(
+            "unknown scoring method: {}. Use centroid, knn, or lof.",
+            args.method
+        ),
     };
 
     let config = HighlightConfig {
@@ -291,22 +325,35 @@ pub async fn highlights(args: HighlightsArgs) -> Result<()> {
 
 /// Show index statistics.
 pub async fn stats() -> Result<()> {
-    let store = vector_store::create_store("qdrant", None).await?;
-    let stats = store.stats().await?;
-
-    println!("Backend: {}", stats.backend);
-    if let Some(ref model) = stats.model {
-        println!("Model: {model}");
+    let spaces = vector_store::list_spaces("qdrant").await?;
+    if spaces.is_empty() {
+        println!("No indexed embedding spaces found.");
+        return Ok(());
     }
-    println!("Total chunks: {}", stats.total_chunks);
-    println!("Unique source files: {}", stats.unique_source_files);
 
-    if !stats.source_files.is_empty() {
-        println!("\nSource files:");
-        for file in &stats.source_files {
-            let exists = Path::new(file).exists();
-            let marker = if exists { "" } else { " [missing]" };
-            println!("  {file}{marker}");
+    for (index, embedding_space) in spaces.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+
+        let store = vector_store::create_store("qdrant", embedding_space).await?;
+        let stats = store.stats().await?;
+
+        println!("Backend: {}", stats.embedding_space.backend);
+        if let Some(ref model) = stats.embedding_space.model {
+            println!("Model: {model}");
+        }
+        println!("Dimensions: {}", stats.embedding_space.dimensions);
+        println!("Total chunks: {}", stats.total_chunks);
+        println!("Unique source files: {}", stats.unique_source_files);
+
+        if !stats.source_files.is_empty() {
+            println!("\nSource files:");
+            for file in &stats.source_files {
+                let exists = Path::new(file).exists();
+                let marker = if exists { "" } else { " [missing]" };
+                println!("  {file}{marker}");
+            }
         }
     }
 
@@ -315,16 +362,23 @@ pub async fn stats() -> Result<()> {
 
 /// Remove specific files from the index.
 pub async fn remove(args: RemoveArgs) -> Result<()> {
-    let store = vector_store::create_store("qdrant", None).await?;
-    let count = store.remove_file(&args.path).await?;
-    info!(removed = count, "removed chunks matching path");
+    let spaces = vector_store::list_spaces("qdrant").await?;
+    let mut total_removed = 0usize;
+    for embedding_space in &spaces {
+        let store = vector_store::create_store("qdrant", embedding_space).await?;
+        total_removed += store.remove_file(&args.path).await?;
+    }
+    info!(removed = total_removed, "removed chunks matching path");
     Ok(())
 }
 
 /// Wipe the entire index.
 pub async fn reset() -> Result<()> {
-    let store = vector_store::create_store("qdrant", None).await?;
-    store.clear().await?;
-    info!("index wiped");
+    let spaces = vector_store::list_spaces("qdrant").await?;
+    for embedding_space in &spaces {
+        let store = vector_store::create_store("qdrant", embedding_space).await?;
+        store.clear().await?;
+    }
+    info!(spaces = spaces.len(), "index wiped");
     Ok(())
 }

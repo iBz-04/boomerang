@@ -80,7 +80,6 @@ impl EmbeddingBackend {
             Self::QwenCloud => "qwen-cloud",
         }
     }
-
 }
 
 impl std::fmt::Display for EmbeddingBackend {
@@ -111,11 +110,7 @@ pub struct EmbeddingSpace {
 }
 
 impl EmbeddingSpace {
-    pub fn new(
-        backend: EmbeddingBackend,
-        model: Option<String>,
-        dimensions: usize,
-    ) -> Self {
+    pub fn new(backend: EmbeddingBackend, model: Option<String>, dimensions: usize) -> Self {
         Self {
             backend,
             model,

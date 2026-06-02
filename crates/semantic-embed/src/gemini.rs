@@ -89,9 +89,7 @@ impl GeminiEmbedder {
         let status = response.status();
 
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(CoreError::QuotaExceeded(
-                "Gemini API quota exceeded".into(),
-            ));
+            return Err(CoreError::QuotaExceeded("Gemini API quota exceeded".into()));
         }
 
         let resp_body = response
@@ -130,9 +128,7 @@ impl Embedder for GeminiEmbedder {
     async fn embed_video(&self, chunk_path: &str) -> Result<Embedding, CoreError> {
         debug!(path = chunk_path, "embedding video via Gemini");
 
-        let video_bytes = tokio::fs::read(chunk_path)
-            .await
-            .map_err(|e| CoreError::Io(e))?;
+        let video_bytes = tokio::fs::read(chunk_path).await.map_err(CoreError::Io)?;
 
         let b64 = BASE64.encode(&video_bytes);
 
@@ -175,9 +171,7 @@ impl Embedder for GeminiEmbedder {
     async fn embed_image(&self, image_path: &str) -> Result<Embedding, CoreError> {
         debug!(path = image_path, "embedding image via Gemini");
 
-        let image_bytes = tokio::fs::read(image_path)
-            .await
-            .map_err(|e| CoreError::Io(e))?;
+        let image_bytes = tokio::fs::read(image_path).await.map_err(CoreError::Io)?;
 
         let mime = mime_type(image_path);
         let b64 = BASE64.encode(&image_bytes);

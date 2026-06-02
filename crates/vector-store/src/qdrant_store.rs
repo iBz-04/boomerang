@@ -174,8 +174,10 @@ impl QdrantStore {
 
         let mut spaces = Vec::new();
         for collection in listing.result.collections {
-            let Some(space) =
-                parse_collection_name(&collection.name, collection_dimensions(&client, &base_url, &collection.name).await?)?
+            let Some(space) = parse_collection_name(
+                &collection.name,
+                collection_dimensions(&client, &base_url, &collection.name).await?,
+            )?
             else {
                 continue;
             };
@@ -191,18 +193,13 @@ impl QdrantStore {
         let response = self.client.get(&url).send().await;
         if let Ok(value) = response {
             if value.status().is_success() {
-                let dimensions = collection_dimensions(
-                    &self.client,
-                    &self.base_url,
-                    &self.collection_name,
-                )
-                .await?;
+                let dimensions =
+                    collection_dimensions(&self.client, &self.base_url, &self.collection_name)
+                        .await?;
                 if dimensions != self.embedding_space.dimensions {
                     return Err(CoreError::Store(format!(
                         "collection {} expects {} dimensions but embedding space uses {}",
-                        self.collection_name,
-                        dimensions,
-                        self.embedding_space.dimensions,
+                        self.collection_name, dimensions, self.embedding_space.dimensions,
                     )));
                 }
                 return Ok(());
@@ -240,9 +237,7 @@ impl QdrantStore {
         if embedding.dimensions != self.embedding_space.dimensions {
             return Err(CoreError::Store(format!(
                 "embedding dimension mismatch for {}: expected {}, got {}",
-                self.collection_name,
-                self.embedding_space.dimensions,
-                embedding.dimensions,
+                self.collection_name, self.embedding_space.dimensions, embedding.dimensions,
             )));
         }
         Ok(())
@@ -271,7 +266,13 @@ impl VectorStore for QdrantStore {
                 dimensions: metadata.dimensions,
             },
         };
-        upsert_points(&self.client, &self.base_url, &self.collection_name, vec![point]).await
+        upsert_points(
+            &self.client,
+            &self.base_url,
+            &self.collection_name,
+            vec![point],
+        )
+        .await
     }
 
     async fn add_batch(
@@ -373,7 +374,7 @@ impl VectorStore for QdrantStore {
         .result
         .points
         .is_empty()
-            .not())
+        .not())
     }
 
     async fn remove_file(&self, source_file: &str) -> Result<usize, CoreError> {
@@ -441,10 +442,7 @@ impl VectorStore for QdrantStore {
                         source_file: payload.source_file.clone(),
                         start_time: payload.start_time,
                         end_time: payload.end_time,
-                        indexed_at: payload
-                            .indexed_at
-                            .parse()
-                            .unwrap_or_else(|_| Utc::now()),
+                        indexed_at: payload.indexed_at.parse().unwrap_or_else(|_| Utc::now()),
                         backend: self.embedding_space.backend,
                         model: payload.model.clone(),
                         dimensions: payload.dimensions,
@@ -461,12 +459,8 @@ impl VectorStore for QdrantStore {
 
     async fn stats(&self) -> Result<StoreStats, CoreError> {
         let count = self.count().await?;
-        let source_files = unique_source_files(
-            &self.client,
-            &self.base_url,
-            &self.collection_name,
-        )
-        .await?;
+        let source_files =
+            unique_source_files(&self.client, &self.base_url, &self.collection_name).await?;
         Ok(StoreStats {
             total_chunks: count,
             unique_source_files: source_files.len(),
@@ -482,7 +476,10 @@ impl VectorStore for QdrantStore {
     async fn clear(&self) -> Result<(), CoreError> {
         let response = self
             .client
-            .delete(format!("{}/collections/{}", self.base_url, self.collection_name))
+            .delete(format!(
+                "{}/collections/{}",
+                self.base_url, self.collection_name
+            ))
             .send()
             .await
             .map_err(|error| CoreError::Store(format!("clear failed: {error}")))?;
@@ -549,7 +546,9 @@ async fn collection_count(
     collection_name: &str,
 ) -> Result<usize, CoreError> {
     let response = client
-        .post(format!("{base_url}/collections/{collection_name}/points/count"))
+        .post(format!(
+            "{base_url}/collections/{collection_name}/points/count"
+        ))
         .json(&serde_json::json!({"exact": true}))
         .send()
         .await
@@ -569,7 +568,9 @@ async fn scroll_by_source_file(
     limit: usize,
 ) -> Result<ScrollResponse, CoreError> {
     let response = client
-        .post(format!("{base_url}/collections/{collection_name}/points/scroll"))
+        .post(format!(
+            "{base_url}/collections/{collection_name}/points/scroll"
+        ))
         .json(&serde_json::json!({
             "filter": {
                 "must": [{
@@ -607,7 +608,9 @@ async fn unique_source_files(
             request["offset"] = serde_json::Value::String(value.clone());
         }
         let response = client
-            .post(format!("{base_url}/collections/{collection_name}/points/scroll"))
+            .post(format!(
+                "{base_url}/collections/{collection_name}/points/scroll"
+            ))
             .json(&request)
             .send()
             .await

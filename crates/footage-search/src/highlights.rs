@@ -67,7 +67,11 @@ pub async fn rank_highlights(
 
     // Sort by score descending
     let mut order: Vec<usize> = (0..scores.len()).collect();
-    order.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|&a, &b| {
+        scores[b]
+            .partial_cmp(&scores[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Deduplicate and collect results
     let mut results = Vec::new();
@@ -96,11 +100,7 @@ pub async fn rank_highlights(
         });
 
         if !is_dup {
-            seen_files.push((
-                meta.source_file.clone(),
-                meta.start_time,
-                meta.end_time,
-            ));
+            seen_files.push((meta.source_file.clone(), meta.start_time, meta.end_time));
             results.push(SearchResult::new(
                 meta.source_file.clone(),
                 meta.start_time,
@@ -179,7 +179,8 @@ fn score_lof(xn: &Array2<f32>, k: usize) -> Vec<f32> {
     let mut k_dist: Vec<f32> = Vec::with_capacity(n);
 
     for i in 0..n {
-        let mut pairs: Vec<(f32, usize)> = d.row(i)
+        let mut pairs: Vec<(f32, usize)> = d
+            .row(i)
             .iter()
             .enumerate()
             .map(|(j, &dist)| (dist, j))
@@ -230,7 +231,11 @@ fn exclude_baseline_mask(xn: &Array2<f32>) -> Array1<f32> {
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median = sorted[n / 2];
 
-    Array1::from_vec(dist.into_iter().map(|d| if d >= median { 1.0 } else { 0.0 }).collect())
+    Array1::from_vec(
+        dist.into_iter()
+            .map(|d| if d >= median { 1.0 } else { 0.0 })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -255,7 +260,8 @@ mod tests {
 
     #[test]
     fn test_score_knn_returns_values() {
-        let x = Array2::from_shape_vec((4, 2), vec![1.0, 0.0, 0.9, 0.1, 0.0, 1.0, -1.0, 0.0]).unwrap();
+        let x =
+            Array2::from_shape_vec((4, 2), vec![1.0, 0.0, 0.9, 0.1, 0.0, 1.0, -1.0, 0.0]).unwrap();
         let xn = normalize(&x);
         let scores = score_knn(&xn, 2);
         assert_eq!(scores.len(), 4);
@@ -263,9 +269,11 @@ mod tests {
 
     #[test]
     fn test_score_lof_returns_values() {
-        let x = Array2::from_shape_vec((5, 2), vec![
-            1.0, 0.0, 0.9, 0.1, 0.0, 1.0, -1.0, 0.0, 0.5, 0.5,
-        ]).unwrap();
+        let x = Array2::from_shape_vec(
+            (5, 2),
+            vec![1.0, 0.0, 0.9, 0.1, 0.0, 1.0, -1.0, 0.0, 0.5, 0.5],
+        )
+        .unwrap();
         let xn = normalize(&x);
         let scores = score_lof(&xn, 2);
         assert_eq!(scores.len(), 5);

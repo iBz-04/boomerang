@@ -15,10 +15,7 @@ use crate::chunker::ChunkingError;
 ///
 /// Extracts 3 evenly-spaced frames as JPEG and compares file sizes.
 /// Similar JPEG sizes indicate similar visual content (still scene).
-pub async fn is_still_frame(
-    chunk_path: &Path,
-    threshold: f64,
-) -> Result<bool, ChunkingError> {
+pub async fn is_still_frame(chunk_path: &Path, threshold: f64) -> Result<bool, ChunkingError> {
     let ffmpeg_path = super::chunker::ffmpeg::find_ffmpeg().await?;
 
     // Get total frame count
@@ -49,8 +46,8 @@ pub async fn is_still_frame(
     let f2 = 2 * total_frames / 3;
 
     // Extract 3 frames as JPEG to a temp dir
-    let tmp_dir = tempfile::tempdir()
-        .map_err(|e| ChunkingError::ExtractionFailed(e.to_string()))?;
+    let tmp_dir =
+        tempfile::tempdir().map_err(|e| ChunkingError::ExtractionFailed(e.to_string()))?;
     let out_pattern = tmp_dir.path().join("frame_%03d.jpg");
 
     let vf = format!("select=eq(n\\,0)+eq(n\\,{})+eq(n\\,{})", f1, f2);
@@ -100,7 +97,7 @@ fn parse_frame_count(stderr: &str) -> u32 {
     // Try "frame= NNN" pattern first
     for line in stderr.lines() {
         if let Some(rest) = line.strip_prefix("frame=") {
-            if let Ok(n) = rest.trim().split_whitespace().next().unwrap_or("0").parse::<u32>() {
+            if let Ok(n) = rest.split_whitespace().next().unwrap_or("0").parse::<u32>() {
                 return n;
             }
         }

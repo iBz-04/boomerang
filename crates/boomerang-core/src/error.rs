@@ -21,10 +21,7 @@ pub enum CoreError {
     QuotaExceeded(String),
 
     #[error("backend mismatch: index was built with {indexed}, but {requested} was requested")]
-    BackendMismatch {
-        indexed: String,
-        requested: String,
-    },
+    BackendMismatch { indexed: String, requested: String },
 
     #[error("vector store error: {0}")]
     Store(String),

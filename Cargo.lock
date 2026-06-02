@@ -1931,6 +1931,7 @@ name = "vector-store"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "boomerang-core",
  "chrono",
  "reqwest",

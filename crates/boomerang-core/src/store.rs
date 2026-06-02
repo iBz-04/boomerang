@@ -35,11 +35,8 @@ pub trait VectorStore: Send + Sync {
     ) -> Result<(), CoreError>;
 
     /// Search for nearest neighbors by embedding.
-    async fn search(
-        &self,
-        query: &Embedding,
-        limit: usize,
-    ) -> Result<Vec<SearchResult>, CoreError>;
+    async fn search(&self, query: &Embedding, limit: usize)
+        -> Result<Vec<SearchResult>, CoreError>;
 
     /// Check if a chunk ID already exists.
     async fn contains(&self, id: &ChunkId) -> Result<bool, CoreError>;

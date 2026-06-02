@@ -7,28 +7,6 @@
 </div>
 
 
-
-
-
-## Commands
-
-```bash
-# Build
-cargo build --release
-
-# Test
-cargo test --workspace
-cargo test -p boomerang-core
-
-# Lint & format
-cargo clippy --workspace -- -D warnings
-cargo fmt --check
-
-# Run
-cargo run -p boomerang-cli -- index /path/to/footage
-cargo run -p boomerang-cli -- search "red truck running a stop sign"
-```
-
 ## Project Structure
 
 ```
@@ -50,12 +28,48 @@ deployments/             # Docker, compose, config profiles
 - **Builder pattern** for complex construction (3+ optional fields).
 - **Config is environment-driven**: `.env` files with `${ENV_VAR}` substitution.
 
+## Core Algorithms
+
+- **Overlapping chunking**: each video is split into windows of length `L` with overlap `O`, so chunk `i` covers `[i(L-O), i(L-O)+L]`. The overlap reduces boundary loss when an event spans two chunks.
+- **Cross-modal retrieval**: every chunk and every query are embedded into the same vector space. Search ranks chunks by cosine similarity
+
+  `cos(x, q) = (x · q) / (||x|| ||q||)`
+
+  where `x` is a stored chunk embedding and `q` is the query embedding.
+- **Confidence filtering**: results below the configured threshold `tau` are dropped, so the returned set is
+
+  `R = {x : cos(x, q) >= tau}`.
+
+- **Highlight scoring**:
+  - `centroid`: anomaly score is distance from the normalized corpus mean `mu`, so `s(x) = 1 - x · mu`
+  - `knn`: anomaly score is the mean cosine distance to the `k` nearest neighbors
+  - `lof`: anomaly score is Local Outlier Factor, comparing local density around a point to the density of its neighbors
+- **Index isolation**: embeddings are stored per `(backend, model, dimensions)` space, so incompatible vectors never mix.
+
+## Commands
+
+```bash
+# Build
+cargo build --release
+
+# Test
+cargo test --workspace
+cargo test -p boomerang-core
+
+# Lint & format
+cargo clippy --workspace -- -D warnings
+cargo fmt --check
+
+# Run
+cargo run -p boomerang-cli -- index /path/to/footage
+cargo run -p boomerang-cli -- search "red truck running a stop sign"
+```
+
+
 ## Testing
 
 - Unit tests in `#[cfg(test)] mod tests` within each crate.
 - Integration tests in `tests/` directory of each crate.
 - Test naming: `test_<unit>_<scenario>_<expected>`.
 - Use `proptest` for numeric logic, `insta` for snapshot tests.
-
-
 

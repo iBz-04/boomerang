@@ -8,7 +8,7 @@ const GEMINI_GENERATE_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 const MAX_QUERIES: usize = 4;
 
-const SYSTEM_INSTRUCTION: &str = "You expand user prompts for video semantic search. Return JSON only: {\"queries\":[\"...\"]}. Produce 1 to 4 short visual descriptions (objects, people, actions, setting, colors, camera view). First query is the most literal visual reading of the user text. No markdown.";
+const SYSTEM_INSTRUCTION: &str = "You expand user prompts for video semantic search. Return JSON only: {\"queries\":[\"...\"]}. Produce 1 to 4 short visual descriptions (objects, people, actions, setting, colors, camera view). The first query must repeat the user prompt verbatim. No markdown.";
 
 #[derive(Debug, Serialize)]
 struct GenerateRequest {
@@ -142,9 +142,11 @@ pub async fn expand_search_queries(user_query: &str) -> Result<Vec<String>, Core
     let payload: ExpandedPayload = serde_json::from_str(&text)
         .map_err(|e| CoreError::EmbeddingApi(format!("query expand parse JSON payload: {e}")))?;
 
-    let mut queries = dedupe_queries(trimmed, payload.queries);
+    let mut queries = dedupe_queries(payload.queries);
     if queries.is_empty() {
-        queries.push(trimmed.to_string());
+        return Err(CoreError::EmbeddingApi(
+            "query expand returned no usable queries".into(),
+        ));
     }
     queries.truncate(MAX_QUERIES);
 
@@ -152,9 +154,8 @@ pub async fn expand_search_queries(user_query: &str) -> Result<Vec<String>, Core
     Ok(queries)
 }
 
-fn dedupe_queries(original: &str, mut candidates: Vec<String>) -> Vec<String> {
+fn dedupe_queries(mut candidates: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
-    let original_key = normalize_key(original);
 
     for candidate in std::mem::take(&mut candidates) {
         let trimmed = candidate.trim();
@@ -166,10 +167,6 @@ fn dedupe_queries(original: &str, mut candidates: Vec<String>) -> Vec<String> {
             continue;
         }
         out.push(trimmed.to_string());
-    }
-
-    if !out.iter().any(|q| normalize_key(q) == original_key) {
-        out.insert(0, original.to_string());
     }
 
     out
@@ -188,23 +185,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dedupe_queries_keeps_original_first() {
-        let queries = dedupe_queries(
-            "red car stops",
-            vec![
-                "red car stops".into(),
-                "red car stops".into(),
-                "vehicle braking at intersection".into(),
-            ],
-        );
+    fn test_dedupe_queries_removes_duplicates_preserving_order() {
+        let queries = dedupe_queries(vec![
+            "red car stops".into(),
+            "red car stops".into(),
+            "vehicle braking at intersection".into(),
+        ]);
         assert_eq!(queries.len(), 2);
         assert_eq!(queries[0], "red car stops");
+        assert_eq!(queries[1], "vehicle braking at intersection");
     }
 
     #[test]
-    fn test_dedupe_queries_inserts_original_when_missing() {
-        let queries = dedupe_queries("person waving", vec!["someone raises hand".into()]);
-        assert_eq!(queries[0], "person waving");
-        assert_eq!(queries.len(), 2);
+    fn test_dedupe_queries_returns_empty_when_all_blank() {
+        let queries = dedupe_queries(vec!["   ".into(), "".into()]);
+        assert!(queries.is_empty());
     }
 }

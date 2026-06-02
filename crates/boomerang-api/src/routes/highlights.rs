@@ -12,8 +12,8 @@ use crate::state::AppState;
 /// Highlights request parameters.
 #[derive(Deserialize)]
 pub struct HighlightsRequest {
-    pub count: Option<usize>,
-    pub method: Option<String>,
+    pub count: usize,
+    pub method: String,
 }
 
 /// Helper to resolve the active indexed space or fall back to defaults.
@@ -35,8 +35,13 @@ pub async fn highlights_handler(
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
-    let count = req.count.unwrap_or(5);
-    let method_str = req.method.as_deref().unwrap_or("knn");
+    if req.count == 0 {
+        return Err(ApiError::BadRequest(
+            "count must be greater than zero".to_string(),
+        ));
+    }
+
+    let method_str = req.method.trim();
     let method = match method_str {
         "centroid" => ScoringMethod::Centroid,
         "knn" => ScoringMethod::Knn,
@@ -50,7 +55,7 @@ pub async fn highlights_handler(
     };
 
     let config = HighlightConfig {
-        count,
+        count: req.count,
         method,
         neighbors: 10,
         dedupe_threshold: 0.9,
@@ -67,7 +72,7 @@ pub async fn highlights_handler(
         }));
     }
 
-    let match_results = build_match_results(results, count)?;
+    let match_results = build_match_results(results, req.count)?;
 
     Ok(Json(SearchResponse {
         results: match_results,

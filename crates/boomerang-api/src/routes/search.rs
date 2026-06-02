@@ -11,17 +11,14 @@ use crate::error::ApiError;
 use crate::routes::match_result::{build_match_results, SearchResponse};
 use crate::state::AppState;
 
-const DEFAULT_SEARCH_RESULTS: usize = 5;
-const DEFAULT_SEARCH_THRESHOLD: f64 = 0.30;
-const RECALL_SEARCH_THRESHOLD: f64 = 0.22;
 const MAX_SEARCH_RESULTS: usize = 10;
-const OVERLAP_DEDUPE_THRESHOLD: f64 = 0.5;
 
 #[derive(Deserialize)]
 pub struct SearchRequest {
     pub query: String,
-    pub results: Option<usize>,
-    pub threshold: Option<f64>,
+    pub results: usize,
+    pub threshold: f64,
+    pub dedupe_threshold: Option<f64>,
 }
 
 async fn resolve_space(backend: &str, model: Option<&str>) -> Result<EmbeddingSpace, ApiError> {
@@ -43,8 +40,9 @@ pub async fn search_handler(
         "api_search",
         request_id,
         query_len = req.query.chars().count(),
-        requested_results = ?req.results,
-        requested_threshold = ?req.threshold
+        results = req.results,
+        threshold = req.threshold,
+        dedupe_threshold = ?req.dedupe_threshold
     );
 
     search_handler_inner(state, req).instrument(span).await
@@ -59,8 +57,9 @@ async fn search_handler_inner(
         return Err(ApiError::BadRequest("query must not be empty".to_string()));
     }
 
-    let limit = validate_result_limit(req.results.unwrap_or(DEFAULT_SEARCH_RESULTS))?;
-    let threshold = validate_threshold(req.threshold.unwrap_or(DEFAULT_SEARCH_THRESHOLD))?;
+    let limit = validate_result_limit(req.results)?;
+    let threshold = validate_threshold(req.threshold)?;
+    let dedupe_threshold = validate_optional_dedupe(req.dedupe_threshold)?;
 
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let embedder = semantic_embed::create_embedder(
@@ -85,29 +84,18 @@ async fn search_handler_inner(
     }
 
     let embedding_refs: Vec<&[f32]> = embeddings.iter().map(|e| e.as_slice()).collect();
-    let mut search_config = SearchConfig {
+    let search_config = SearchConfig {
         max_results: limit,
         threshold,
-        dedupe_threshold: Some(OVERLAP_DEDUPE_THRESHOLD),
+        dedupe_threshold,
     };
 
-    let mut results =
-        footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config).await?;
-
-    if results.is_empty() && threshold > RECALL_SEARCH_THRESHOLD {
-        info!(
-            original_threshold = threshold,
-            recall_threshold = RECALL_SEARCH_THRESHOLD,
-            "no matches at primary threshold, retrying with recall threshold"
-        );
-        search_config.threshold = RECALL_SEARCH_THRESHOLD;
-        results =
-            footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
-                .await?;
-    }
+    let results =
+        footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
+            .await?;
 
     let rewritten_query = search_queries.join(" · ");
-    let response_queries = search_queries.clone();
+    let response_queries = search_queries;
 
     if results.is_empty() {
         return Ok(Json(SearchResponse {
@@ -188,6 +176,17 @@ fn validate_threshold(threshold: f64) -> Result<f64, ApiError> {
     Ok(threshold)
 }
 
+fn validate_optional_dedupe(threshold: Option<f64>) -> Result<Option<f64>, ApiError> {
+    if let Some(value) = threshold {
+        if !(0.0..=1.0).contains(&value) {
+            return Err(ApiError::BadRequest(
+                "dedupe_threshold must be between 0.0 and 1.0".to_string(),
+            ));
+        }
+    }
+    Ok(threshold)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +200,12 @@ mod tests {
     fn test_validate_threshold_rejects_out_of_range_values() {
         assert!(validate_threshold(-0.1).is_err());
         assert!(validate_threshold(1.1).is_err());
+    }
+
+    #[test]
+    fn test_validate_optional_dedupe_rejects_out_of_range_values() {
+        assert!(validate_optional_dedupe(Some(-0.1)).is_err());
+        assert!(validate_optional_dedupe(Some(1.1)).is_err());
+        assert!(validate_optional_dedupe(None).is_ok());
     }
 }

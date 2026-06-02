@@ -63,24 +63,27 @@
 		}
 	}
 
-	async function show(
-		promise: Promise<{
-			results: MatchResult[];
-			rewritten_query?: string;
-			search_queries?: string[];
-		}>,
-		opts: { autoPlayBest?: boolean } = {}
-	) {
+	async function showSearch(promise: Promise<{
+		results: MatchResult[];
+		rewritten_query?: string;
+		search_queries?: string[];
+	}>) {
 		error = '';
 		status = 'searching';
 		try {
 			const r = await promise;
 			results = r.results;
-			searchQueries = r.search_queries ?? [];
-			rewrittenQuery = r.rewritten_query?.trim() ?? '';
+			if (r.search_queries === undefined) {
+				throw new Error('search response missing search_queries');
+			}
+			if (r.rewritten_query === undefined) {
+				throw new Error('search response missing rewritten_query');
+			}
+			searchQueries = r.search_queries;
+			rewrittenQuery = r.rewritten_query.trim();
 			if (results.length === 0) {
-				error = 'No matches found. Try naming objects, actions, or colors you expect in the clip.';
-			} else if (opts.autoPlayBest) {
+				error = 'No matches at the configured similarity threshold.';
+			} else {
 				await onResultClick(results[0]);
 			}
 			status = 'ready';
@@ -90,8 +93,26 @@
 		}
 	}
 
+	async function showHighlights(promise: Promise<{ results: MatchResult[] }>) {
+		error = '';
+		status = 'searching';
+		searchQueries = [];
+		rewrittenQuery = '';
+		try {
+			const r = await promise;
+			results = r.results;
+			if (results.length === 0) {
+				error = 'No highlights ranked for the indexed footage.';
+			}
+			status = 'ready';
+		} catch (e) {
+			error = (e as Error).message;
+			status = 'ready';
+		}
+	}
+
 	function runSearch() {
-		if (query.trim()) show(search(query), { autoPlayBest: true });
+		if (query.trim()) showSearch(search(query));
 	}
 </script>
 
@@ -152,7 +173,7 @@
 			<button class="btn primary" onclick={runSearch} disabled={busy || !hasVideo || !query.trim()}>
 				<span class="ico">◎</span> SEARCH TIME
 			</button>
-			<button class="btn ghost" onclick={() => show(highlights())} disabled={busy || !hasVideo}>
+			<button class="btn ghost" onclick={() => showHighlights(highlights())} disabled={busy || !hasVideo}>
 				<span class="ico">⤬</span> SURFACE HIGHLIGHTS
 			</button>
 

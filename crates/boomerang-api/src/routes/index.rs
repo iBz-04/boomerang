@@ -35,7 +35,10 @@ pub async fn index_handler(
 
     while let Some(f) = multipart.next_field().await? {
         if f.name() == Some("video") {
-            filename = Some(f.file_name().unwrap_or("video.mp4").to_string());
+            let name = f.file_name().ok_or_else(|| {
+                ApiError::BadRequest("video upload must include a file name".to_string())
+            })?;
+            filename = Some(name.to_string());
             video_bytes = Some(f.bytes().await?);
             break;
         }

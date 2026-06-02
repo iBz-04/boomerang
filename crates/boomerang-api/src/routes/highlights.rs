@@ -4,6 +4,7 @@ use axum::{extract::State, response::IntoResponse, Json};
 use boomerang_core::search::HighlightConfig;
 use boomerang_core::types::{EmbeddingSpace, ScoringMethod};
 use serde::Deserialize;
+use std::path::Path;
 
 use crate::error::ApiError;
 use crate::routes::match_result::{build_match_results, SearchResponse};
@@ -35,7 +36,7 @@ pub async fn highlights_handler(
 ) -> Result<impl IntoResponse, ApiError> {
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
-    let source_file = validate_optional_source_file(req.source_file)?;
+    let source_file = normalize_optional_source_file(req.source_file).await?;
 
     if req.count == 0 {
         return Err(ApiError::BadRequest(
@@ -84,7 +85,9 @@ pub async fn highlights_handler(
     }))
 }
 
-fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<String>, ApiError> {
+async fn normalize_optional_source_file(
+    source_file: Option<String>,
+) -> Result<Option<String>, ApiError> {
     match source_file {
         Some(value) => {
             let trimmed = value.trim();
@@ -93,7 +96,11 @@ fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<S
                     "source_file must not be blank when provided".to_string(),
                 ));
             }
-            Ok(Some(trimmed.to_string()))
+            let path = Path::new(trimmed);
+            match tokio::fs::canonicalize(path).await {
+                Ok(canonical) => Ok(Some(canonical.to_string_lossy().to_string())),
+                Err(_) => Ok(Some(trimmed.to_string())),
+            }
         }
         None => Ok(None),
     }
@@ -103,12 +110,10 @@ fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<S
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_validate_optional_source_file_rejects_blank_values() {
-        assert!(validate_optional_source_file(Some("".to_string())).is_err());
-        assert_eq!(
-            validate_optional_source_file(Some(" /tmp/video.mp4 ".to_string())).unwrap(),
-            Some("/tmp/video.mp4".to_string())
-        );
+    #[tokio::test]
+    async fn test_normalize_optional_source_file_rejects_blank_values() {
+        assert!(normalize_optional_source_file(Some("".to_string()))
+            .await
+            .is_err());
     }
 }

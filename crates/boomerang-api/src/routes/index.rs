@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
@@ -87,7 +87,8 @@ pub async fn index_handler(
     let embedding_space = embedder.embedding_space()?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
-    let video_file_str = video_path.to_string_lossy().to_string();
+    let canonical_video_path = canonicalize_source_file(&video_path).await?;
+    let video_file_str = canonical_video_path.to_string_lossy().to_string();
     if store.is_file_indexed(&video_file_str).await? {
         info!(file = %video_file_str, "file already indexed; clearing old entries to re-index");
         store.remove_file(&video_file_str).await?;
@@ -140,4 +141,8 @@ pub async fn index_handler(
         source_file: video_file_str,
         chunks: indexed_count,
     }))
+}
+
+async fn canonicalize_source_file(path: &Path) -> Result<PathBuf, ApiError> {
+    tokio::fs::canonicalize(path).await.map_err(ApiError::Io)
 }

@@ -5,6 +5,7 @@ use boomerang_core::embedding::Embedding;
 use boomerang_core::search::SearchConfig;
 use boomerang_core::types::EmbeddingSpace;
 use serde::Deserialize;
+use std::path::Path;
 use tracing::{debug, info, info_span, Instrument};
 
 use crate::error::ApiError;
@@ -63,7 +64,7 @@ async fn search_handler_inner(
     let limit = validate_result_limit(req.results)?;
     let threshold = validate_threshold(req.threshold)?;
     let dedupe_threshold = validate_optional_dedupe(req.dedupe_threshold)?;
-    let source_file = validate_optional_source_file(req.source_file)?;
+    let source_file = normalize_optional_source_file(req.source_file).await?;
 
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let embedder = semantic_embed::create_embedder(
@@ -193,7 +194,9 @@ fn validate_optional_dedupe(threshold: Option<f64>) -> Result<Option<f64>, ApiEr
     Ok(threshold)
 }
 
-fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<String>, ApiError> {
+async fn normalize_optional_source_file(
+    source_file: Option<String>,
+) -> Result<Option<String>, ApiError> {
     match source_file {
         Some(value) => {
             let trimmed = value.trim();
@@ -202,7 +205,11 @@ fn validate_optional_source_file(source_file: Option<String>) -> Result<Option<S
                     "source_file must not be blank when provided".to_string(),
                 ));
             }
-            Ok(Some(trimmed.to_string()))
+            let path = Path::new(trimmed);
+            match tokio::fs::canonicalize(path).await {
+                Ok(canonical) => Ok(Some(canonical.to_string_lossy().to_string())),
+                Err(_) => Ok(Some(trimmed.to_string())),
+            }
         }
         None => Ok(None),
     }
@@ -230,12 +237,33 @@ mod tests {
         assert!(validate_optional_dedupe(None).is_ok());
     }
 
-    #[test]
-    fn test_validate_optional_source_file_rejects_blank_values() {
-        assert!(validate_optional_source_file(Some("   ".to_string())).is_err());
+    #[tokio::test]
+    async fn test_normalize_optional_source_file_rejects_blank_values() {
+        assert!(normalize_optional_source_file(Some("   ".to_string()))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_normalize_optional_source_file_canonicalizes_existing_paths() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("video.mp4");
+        tokio::fs::write(&file_path, b"test").await.unwrap();
+
+        let normalized =
+            normalize_optional_source_file(Some(file_path.to_string_lossy().to_string()))
+                .await
+                .unwrap();
+
         assert_eq!(
-            validate_optional_source_file(Some(" /tmp/video.mp4 ".to_string())).unwrap(),
-            Some("/tmp/video.mp4".to_string())
+            normalized,
+            Some(
+                file_path
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            )
         );
     }
 }

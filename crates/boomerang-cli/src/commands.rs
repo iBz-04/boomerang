@@ -167,17 +167,38 @@ pub async fn search(args: SearchArgs) -> Result<()> {
     )?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
-    let query_embedding = embedder.embed_query(&args.query).await?;
+    let search_queries = semantic_embed::query_expand::expand_search_queries(&args.query)
+        .await
+        .context("failed to expand search query")?;
 
-    let search_config = SearchConfig {
+    let mut embeddings = Vec::with_capacity(search_queries.len());
+    for query in &search_queries {
+        embeddings.push(
+            embedder
+                .embed_query(query)
+                .await
+                .context("failed to embed search query")?,
+        );
+    }
+    let embedding_refs: Vec<&[f32]> = embeddings.iter().map(|e| e.as_slice()).collect();
+
+    let mut search_config = SearchConfig {
         max_results: args.results,
         threshold: args.threshold,
-        dedupe_threshold: args.dedupe,
+        dedupe_threshold: args.dedupe.or(Some(0.5)),
     };
 
-    let results =
-        footage_search::search_by_text(store.as_ref(), query_embedding.as_slice(), &search_config)
+    let mut results =
+        footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
             .await?;
+
+    const RECALL_THRESHOLD: f64 = 0.22;
+    if results.is_empty() && args.threshold > RECALL_THRESHOLD {
+        search_config.threshold = RECALL_THRESHOLD;
+        results =
+            footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
+                .await?;
+    }
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");

@@ -8,6 +8,8 @@
 	let query = $state('');
 	let status = $state<'idle' | 'indexing' | 'ready' | 'searching'>('idle');
 	let results = $state<MatchResult[]>([]);
+	let rewrittenQuery = $state('');
+	let searchQueries = $state<string[]>([]);
 	let error = $state('');
 
 	const busy = $derived(status === 'indexing' || status === 'searching');
@@ -19,16 +21,28 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	}
 
-	function seekToResult(match: MatchResult) {
+	async function seekToResult(match: MatchResult) {
+		error = '';
 		if (!videoEl) {
 			throw new Error('video element is not ready');
 		}
 		if (!Number.isFinite(match.start) || match.start < 0) {
 			throw new Error(`invalid search result start time: ${match.start}`);
 		}
+		if (Number.isFinite(videoEl.duration) && match.start > videoEl.duration) {
+			throw new Error(`search result start time exceeds video duration: ${match.start}`);
+		}
 
 		videoEl.currentTime = match.start;
-		void videoEl.play();
+		await videoEl.play();
+	}
+
+	async function onResultClick(match: MatchResult) {
+		try {
+			await seekToResult(match);
+		} catch (e) {
+			error = (e as Error).message;
+		}
 	}
 
 	async function onFile(e: Event) {
@@ -36,6 +50,8 @@
 		if (!file) return;
 		error = '';
 		results = [];
+		rewrittenQuery = '';
+		searchQueries = [];
 		videoUrl = URL.createObjectURL(file);
 		status = 'indexing';
 		try {
@@ -47,14 +63,25 @@
 		}
 	}
 
-	async function show(promise: Promise<{ results: MatchResult[] }>) {
+	async function show(
+		promise: Promise<{
+			results: MatchResult[];
+			rewritten_query?: string;
+			search_queries?: string[];
+		}>,
+		opts: { autoPlayBest?: boolean } = {}
+	) {
 		error = '';
 		status = 'searching';
 		try {
 			const r = await promise;
 			results = r.results;
+			searchQueries = r.search_queries ?? [];
+			rewrittenQuery = r.rewritten_query?.trim() ?? '';
 			if (results.length === 0) {
-				error = "No matches found for this query. Try being more descriptive.";
+				error = 'No matches found. Try naming objects, actions, or colors you expect in the clip.';
+			} else if (opts.autoPlayBest) {
+				await onResultClick(results[0]);
 			}
 			status = 'ready';
 		} catch (e) {
@@ -64,7 +91,7 @@
 	}
 
 	function runSearch() {
-		if (query.trim()) show(search(query));
+		if (query.trim()) show(search(query), { autoPlayBest: true });
 	}
 </script>
 
@@ -112,13 +139,33 @@
 				disabled={!hasVideo}
 			/>
 			<p class="label">{status === 'indexing' ? 'INDEXING FOOTAGE' : 'SEMANTIC QUERY'}</p>
+			{#if searchQueries.length > 0}
+				<ul class="queries" aria-label="Expanded search queries">
+					{#each searchQueries as q, index}
+						<li>{index + 1}. {q}</li>
+					{/each}
+				</ul>
+			{:else if rewrittenQuery}
+				<p class="rewrite">Searching as: {rewrittenQuery}</p>
+			{/if}
 
 			<button class="btn primary" onclick={runSearch} disabled={busy || !hasVideo || !query.trim()}>
-				<span class="ico">◎</span> SEARCH CLIP
+				<span class="ico">◎</span> SEARCH TIME
 			</button>
 			<button class="btn ghost" onclick={() => show(highlights())} disabled={busy || !hasVideo}>
 				<span class="ico">⤬</span> SURFACE HIGHLIGHTS
 			</button>
+
+			{#if results.length > 0}
+				<div class="results" aria-label="Search results">
+					{#each results as match, index}
+						<button class="result" onclick={() => onResultClick(match)}>
+							<span>{index + 1}. {fmt(match.start)}–{fmt(match.end)}</span>
+							<span class="score">{Math.round(match.score * 100)}%</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
 
 			{#if error}<p class="error">{error}</p>{/if}
 		</div>
@@ -274,6 +321,21 @@
 		color: #9a9aa0;
 	}
 
+	.rewrite {
+		margin: -6px 0 2px 4px;
+		font-size: 12px;
+		color: #64646b;
+	}
+
+	.queries {
+		margin: -6px 0 2px 0;
+		padding: 0 0 0 18px;
+		font-size: 12px;
+		color: #64646b;
+		display: grid;
+		gap: 4px;
+	}
+
 	.btn {
 		width: 100%;
 		display: flex;
@@ -307,6 +369,40 @@
 
 	.ico {
 		font-size: 14px;
+	}
+
+	.results {
+		display: grid;
+		gap: 8px;
+		margin-top: 2px;
+	}
+
+	.result {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		width: 100%;
+		border: 1px solid #e3e3e6;
+		border-radius: 8px;
+		background: #fff;
+		color: #111;
+		padding: 11px 12px;
+		font: inherit;
+		font-size: 13px;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.result:hover {
+		border-color: #111;
+	}
+
+	.score {
+		font-size: 11px;
+		font-weight: 700;
+		color: #6b6b70;
+		flex-shrink: 0;
 	}
 
 	.error {

@@ -4,6 +4,8 @@
 //! embeddings using Qdrant's vector database.
 
 mod collection_name;
+mod qdrant_http;
+mod qdrant_scroll;
 pub mod qdrant_store;
 
 use boomerang_core::error::CoreError;

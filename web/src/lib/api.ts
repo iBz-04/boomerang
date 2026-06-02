@@ -12,6 +12,8 @@ export interface MatchResult {
 
 export interface SearchResponse {
 	results: MatchResult[];
+	rewritten_query?: string;
+	search_queries?: string[];
 }
 
 export interface IndexResponse {
@@ -39,14 +41,14 @@ async function json<T>(res: Response): Promise<T> {
 	return res.json() as Promise<T>;
 }
 
-// POST /index — multipart upload, chunks + embeds the video into the vector store.
+// POST /index: multipart upload, chunks and embeds the video into the vector store.
 export async function indexVideo(file: File): Promise<IndexResponse> {
 	const body = new FormData();
 	body.append('video', file);
 	return json(await fetch(`${API_BASE}/index`, { method: 'POST', body }));
 }
 
-// POST /search — natural language query, returns ranked time ranges.
+// POST /search: natural language query, returns ranked time ranges.
 export async function search(
 	query: string,
 	opts: { results?: number; threshold?: number } = {}
@@ -58,13 +60,13 @@ export async function search(
 			body: JSON.stringify({
 				query,
 				results: opts.results ?? 5,
-				threshold: opts.threshold ?? 0.41
+				threshold: opts.threshold ?? 0.3
 			})
 		})
 	);
 }
 
-// POST /highlights — surface the most anomalous clips in the indexed footage.
+// POST /highlights: surface the most anomalous time ranges in the indexed footage.
 export async function highlights(
 	opts: { count?: number; method?: string } = {}
 ): Promise<SearchResponse> {

@@ -1,15 +1,22 @@
 // Endpoint for searching indexed video footage by text query (POST /search).
 
 use axum::{extract::State, response::IntoResponse, Json};
+use boomerang_core::embedding::Embedding;
 use boomerang_core::search::SearchConfig;
 use boomerang_core::types::EmbeddingSpace;
 use serde::Deserialize;
+use tracing::{debug, info, info_span, Instrument};
 
 use crate::error::ApiError;
 use crate::routes::match_result::{build_match_results, SearchResponse};
 use crate::state::AppState;
 
-/// Search request parameters.
+const DEFAULT_SEARCH_RESULTS: usize = 5;
+const DEFAULT_SEARCH_THRESHOLD: f64 = 0.30;
+const RECALL_SEARCH_THRESHOLD: f64 = 0.22;
+const MAX_SEARCH_RESULTS: usize = 10;
+const OVERLAP_DEDUPE_THRESHOLD: f64 = 0.5;
+
 #[derive(Deserialize)]
 pub struct SearchRequest {
     pub query: String,
@@ -17,7 +24,6 @@ pub struct SearchRequest {
     pub threshold: Option<f64>,
 }
 
-/// Helper to resolve the active indexed space or fall back to defaults.
 async fn resolve_space(backend: &str, model: Option<&str>) -> Result<EmbeddingSpace, ApiError> {
     if let Some(space) = vector_store::detect_space("qdrant").await? {
         Ok(space)
@@ -28,11 +34,34 @@ async fn resolve_space(backend: &str, model: Option<&str>) -> Result<EmbeddingSp
     }
 }
 
-/// Handle semantic search over indexed footage.
 pub async fn search_handler(
     State(state): State<AppState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let request_id = state.next_request_id();
+    let span = info_span!(
+        "api_search",
+        request_id,
+        query_len = req.query.chars().count(),
+        requested_results = ?req.results,
+        requested_threshold = ?req.threshold
+    );
+
+    search_handler_inner(state, req).instrument(span).await
+}
+
+async fn search_handler_inner(
+    state: AppState,
+    req: SearchRequest,
+) -> Result<impl IntoResponse, ApiError> {
+    let trimmed = req.query.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::BadRequest("query must not be empty".to_string()));
+    }
+
+    let limit = validate_result_limit(req.results.unwrap_or(DEFAULT_SEARCH_RESULTS))?;
+    let threshold = validate_threshold(req.threshold.unwrap_or(DEFAULT_SEARCH_THRESHOLD))?;
+
     let embedding_space = resolve_space(&state.backend, state.model.as_deref()).await?;
     let embedder = semantic_embed::create_embedder(
         embedding_space.backend.as_str(),
@@ -40,27 +69,137 @@ pub async fn search_handler(
     )?;
     let store = vector_store::create_store("qdrant", &embedding_space).await?;
 
-    let query_embedding = embedder.embed_query(&req.query).await?;
+    let search_queries = semantic_embed::query_expand::expand_search_queries(trimmed).await?;
+    info!(
+        original_query = %trimmed,
+        expanded_count = search_queries.len(),
+        ?search_queries,
+        "expanded search queries"
+    );
 
-    let search_config = SearchConfig {
-        max_results: req.results.unwrap_or(5),
-        threshold: req.threshold.unwrap_or(0.41),
-        dedupe_threshold: None,
-    };
-
-    let results =
-        footage_search::search_by_text(store.as_ref(), query_embedding.as_slice(), &search_config)
-            .await?;
-
-    if results.is_empty() {
-        return Ok(Json(SearchResponse { results: vec![] }));
+    let mut embeddings: Vec<Embedding> = Vec::with_capacity(search_queries.len());
+    for query in &search_queries {
+        let embedding = embedder.embed_query(query).await?;
+        log_embedding_summary(query, &embedding);
+        embeddings.push(embedding);
     }
 
-    let limit = req.results.unwrap_or(5);
+    let embedding_refs: Vec<&[f32]> = embeddings.iter().map(|e| e.as_slice()).collect();
+    let mut search_config = SearchConfig {
+        max_results: limit,
+        threshold,
+        dedupe_threshold: Some(OVERLAP_DEDUPE_THRESHOLD),
+    };
+
+    let mut results =
+        footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config).await?;
+
+    if results.is_empty() && threshold > RECALL_SEARCH_THRESHOLD {
+        info!(
+            original_threshold = threshold,
+            recall_threshold = RECALL_SEARCH_THRESHOLD,
+            "no matches at primary threshold, retrying with recall threshold"
+        );
+        search_config.threshold = RECALL_SEARCH_THRESHOLD;
+        results =
+            footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
+                .await?;
+    }
+
+    let rewritten_query = search_queries.join(" · ");
+    let response_queries = search_queries.clone();
+
+    if results.is_empty() {
+        return Ok(Json(SearchResponse {
+            results: vec![],
+            rewritten_query: Some(rewritten_query),
+            search_queries: Some(response_queries),
+        }));
+    }
 
     let match_results = build_match_results(results, limit)?;
+    for (rank, result) in match_results.iter().enumerate() {
+        info!(
+            rank = rank + 1,
+            file = %result.file,
+            start = result.start,
+            end = result.end,
+            score = result.score,
+            "search response match"
+        );
+    }
 
     Ok(Json(SearchResponse {
         results: match_results,
+        rewritten_query: Some(rewritten_query),
+        search_queries: Some(response_queries),
     }))
+}
+
+fn log_embedding_summary(label: &str, embedding: &Embedding) {
+    let finite_values = embedding
+        .data
+        .iter()
+        .filter(|value| value.is_finite())
+        .count();
+    let l2_norm = embedding
+        .data
+        .iter()
+        .map(|value| f64::from(*value) * f64::from(*value))
+        .sum::<f64>()
+        .sqrt();
+    let sample: Vec<f32> = embedding.data.iter().copied().take(8).collect();
+
+    info!(
+        label,
+        dimensions = embedding.dimensions,
+        finite_values,
+        l2_norm,
+        "embedding produced"
+    );
+    debug!(
+        label,
+        dimensions = embedding.dimensions,
+        sample = ?sample,
+        "embedding sample"
+    );
+}
+
+fn validate_result_limit(limit: usize) -> Result<usize, ApiError> {
+    if limit == 0 {
+        return Err(ApiError::BadRequest(
+            "results must be greater than zero".to_string(),
+        ));
+    }
+    if limit > MAX_SEARCH_RESULTS {
+        return Err(ApiError::BadRequest(format!(
+            "results must be less than or equal to {MAX_SEARCH_RESULTS}"
+        )));
+    }
+    Ok(limit)
+}
+
+fn validate_threshold(threshold: f64) -> Result<f64, ApiError> {
+    if !(0.0..=1.0).contains(&threshold) {
+        return Err(ApiError::BadRequest(
+            "threshold must be between 0.0 and 1.0".to_string(),
+        ));
+    }
+    Ok(threshold)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_result_limit_rejects_zero() {
+        assert!(validate_result_limit(0).is_err());
+    }
+
+    #[test]
+    fn test_validate_threshold_rejects_out_of_range_values() {
+        assert!(validate_threshold(-0.1).is_err());
+        assert!(validate_threshold(1.1).is_err());
+    }
 }

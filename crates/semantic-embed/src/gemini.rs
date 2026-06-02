@@ -1,10 +1,9 @@
 //! Gemini Embedding API backend.
 //!
 //! Uses Google's `gemini-embedding-2` multimodal model, which maps text,
-//! images, and video into one unified vector space. Documents (video/images)
-//! are embedded from raw bytes; text queries carry the asymmetric retrieval
-//! task prefix (`task: search result | query: ...`) so they align with the
-//! embedded documents.
+//! images, and video into one unified vector space. Video and image content
+//! are embedded from raw bytes, and text queries are embedded as natural
+//! language descriptions of the visual moment being searched.
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -155,11 +154,8 @@ impl Embedder for GeminiEmbedder {
     }
 
     async fn embed_query(&self, query: &str) -> Result<Embedding, CoreError> {
-        debug!(query, "embedding text query via Gemini");
-
-        // gemini-embedding-2 requires the asymmetric retrieval task prefix on
-        // queries so they project into the same space as embedded documents.
-        let formatted = format!("task: search result | query: {query}");
+        let formatted = format_search_query(query);
+        debug!(query = %formatted, "embedding text query via Gemini");
 
         let body = EmbedRequest {
             model: "models/gemini-embedding-2".into(),
@@ -217,6 +213,15 @@ impl Embedder for GeminiEmbedder {
     }
 }
 
+pub fn format_search_query(query: &str) -> String {
+    let trimmed = query.trim();
+    if trimmed.starts_with("task: search result | query:") {
+        trimmed.to_string()
+    } else {
+        format!("task: search result | query: {trimmed}")
+    }
+}
+
 fn mime_type(path: &str) -> String {
     let lower = path.to_lowercase();
     if lower.ends_with(".png") {
@@ -242,5 +247,20 @@ mod tests {
         assert_eq!(mime_type("photo.png"), "image/png");
         assert_eq!(mime_type("photo.webp"), "image/webp");
         assert_eq!(mime_type("photo.HEIC"), "image/heic");
+    }
+
+    #[test]
+    fn test_format_search_query_adds_task_prefix() {
+        let formatted = format_search_query("person opens a door");
+        assert_eq!(
+            formatted,
+            "task: search result | query: person opens a door"
+        );
+    }
+
+    #[test]
+    fn test_format_search_query_idempotent_when_prefixed() {
+        let prefixed = "task: search result | query: already formatted";
+        assert_eq!(format_search_query(prefixed), prefixed);
     }
 }

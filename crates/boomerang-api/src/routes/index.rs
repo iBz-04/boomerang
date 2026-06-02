@@ -14,6 +14,10 @@ use tracing::info;
 use crate::error::ApiError;
 use crate::state::AppState;
 
+const SEARCH_CHUNK_DURATION_SECONDS: u32 = 8;
+const SEARCH_CHUNK_OVERLAP_SECONDS: u32 = 2;
+const SEARCH_TARGET_FPS: u32 = 4;
+
 /// API response for the video indexing endpoint.
 #[derive(Serialize)]
 pub struct IndexResponse {
@@ -46,7 +50,14 @@ pub async fn index_handler(
         }
     };
 
-    let video_bytes = video_bytes.unwrap();
+    let video_bytes = match video_bytes {
+        Some(bytes) => bytes,
+        None => {
+            return Err(ApiError::BadRequest(
+                "missing video bytes in multipart field".to_string(),
+            ))
+        }
+    };
     let video_path = state.upload_dir.join(&filename);
 
     if let Some(parent) = video_path.parent() {
@@ -60,10 +71,10 @@ pub async fn index_handler(
     info!(path = %video_path.display(), "saved uploaded video file");
 
     let config = boomerang_core::chunk::ChunkingConfig {
-        chunk_duration: 30,
-        overlap: 5,
+        chunk_duration: SEARCH_CHUNK_DURATION_SECONDS,
+        overlap: SEARCH_CHUNK_OVERLAP_SECONDS,
         target_resolution: 480,
-        target_fps: 5,
+        target_fps: SEARCH_TARGET_FPS,
         skip_preprocess: false,
         skip_still_detection: false,
     };

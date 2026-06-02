@@ -20,6 +20,10 @@ pub struct MatchResult {
 #[derive(Serialize)]
 pub struct SearchResponse {
     pub results: Vec<MatchResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rewritten_query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_queries: Option<Vec<String>>,
 }
 
 /// Build API results with source metadata and seekable time ranges.

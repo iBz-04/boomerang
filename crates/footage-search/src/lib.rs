@@ -4,6 +4,7 @@
 //! plus highlight detection using centroid distance, KNN, and LOF methods.
 
 pub mod highlights;
+pub mod merge;
 pub mod search;
 
 use boomerang_core::error::CoreError;
@@ -17,6 +18,15 @@ pub async fn search_by_text(
     config: &SearchConfig,
 ) -> Result<Vec<SearchResult>, CoreError> {
     search::search_with_embedding(store, query_embedding, config).await
+}
+
+/// Search with multiple query embeddings and merge by best score per chunk.
+pub async fn search_by_embeddings(
+    store: &dyn VectorStore,
+    query_embeddings: &[&[f32]],
+    config: &SearchConfig,
+) -> Result<Vec<SearchResult>, CoreError> {
+    merge::search_with_embeddings(store, query_embeddings, config).await
 }
 
 /// Search indexed footage with an image query.

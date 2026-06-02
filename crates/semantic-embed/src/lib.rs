@@ -6,6 +6,7 @@
 //! - Local Qwen3-VL model (future)
 
 pub mod gemini;
+pub mod query_expand;
 pub mod qwen_cloud;
 
 use boomerang_core::embedding::Embedder;

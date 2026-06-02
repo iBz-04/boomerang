@@ -14,8 +14,11 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     // Initialize tracing/logging
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("boomerang_api=info,boomerang=info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "boomerang_api=info,footage_search=info,vector_store=info,semantic_embed=info",
+        )
+    });
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

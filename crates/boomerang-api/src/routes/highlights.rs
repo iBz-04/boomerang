@@ -60,12 +60,18 @@ pub async fn highlights_handler(
     let results = footage_search::rank_highlights(store.as_ref(), &config).await?;
 
     if results.is_empty() {
-        return Ok(Json(SearchResponse { results: vec![] }));
+        return Ok(Json(SearchResponse {
+            results: vec![],
+            rewritten_query: None,
+            search_queries: None,
+        }));
     }
 
     let match_results = build_match_results(results, count)?;
 
     Ok(Json(SearchResponse {
         results: match_results,
+        rewritten_query: None,
+        search_queries: None,
     }))
 }

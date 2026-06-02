@@ -41,7 +41,11 @@
 		try {
 			const r = await promise;
 			result = r.results[0] ?? null;
-			if (result) videoUrl = clipUrl(result.clip_url);
+			if (result) {
+				videoUrl = clipUrl(result.clip_url);
+			} else {
+				error = "No matches found for this query. Try being more descriptive.";
+			}
 			status = 'ready';
 		} catch (e) {
 			error = (e as Error).message;

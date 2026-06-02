@@ -8,6 +8,7 @@ members = [
     "crates/footage-search",
     "crates/clip-trim",
     "crates/boomerang-cli",
+    "crates/boomerang-api",
 ]
 
 [workspace.package]

@@ -25,10 +25,14 @@ pub(crate) fn parse_collection_name(
         return Ok(None);
     }
 
-    let suffix = name
+    let suffix = match name
         .strip_prefix(COLLECTION_PREFIX)
         .and_then(|value| value.strip_prefix("__"))
-        .ok_or_else(|| CoreError::Store(format!("invalid collection name: {name}")))?;
+    {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
     let mut parts = suffix.splitn(2, "__");
     let backend = parts
         .next()

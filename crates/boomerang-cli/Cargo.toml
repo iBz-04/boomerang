@@ -1,0 +1,25 @@
+[package]
+name = "boomerang-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "boomerang"
+path = "src/main.rs"
+
+[dependencies]
+boomerang-core.workspace = true
+video-chunking.workspace = true
+semantic-embed.workspace = true
+vector-store.workspace = true
+footage-search.workspace = true
+clip-trim.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+chrono.workspace = true
+tempfile.workspace = true

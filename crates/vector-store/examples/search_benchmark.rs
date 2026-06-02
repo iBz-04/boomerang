@@ -135,12 +135,7 @@ fn brute_force_search(corpus: &[Vec<f32>], query: &[f32], top_k: usize) -> Vec<(
         .enumerate()
         .map(|(index, vector)| (index, dot(vector, query)))
         .collect();
-    scores.sort_by(|left, right| {
-        right
-            .1
-            .partial_cmp(&left.1)
-            .unwrap_or(Ordering::Equal)
-    });
+    scores.sort_by(|left, right| right.1.partial_cmp(&left.1).unwrap_or(Ordering::Equal));
     scores.truncate(top_k);
     scores
 }

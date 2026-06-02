@@ -19,9 +19,6 @@ pub enum ApiError {
     #[error("Core error: {0}")]
     Core(#[from] boomerang_core::error::CoreError),
 
-    #[error("Clip trim error: {0}")]
-    Trim(#[from] clip_trim::TrimError),
-
     #[error("Chunking error: {0}")]
     Chunking(#[from] video_chunking::chunker::ChunkingError),
 
@@ -39,7 +36,6 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(ref msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             ApiError::Io(ref e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::Core(ref e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            ApiError::Trim(ref e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::Chunking(ref e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::Internal(ref e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         };

@@ -23,12 +23,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting Boomerang REST API server...");
 
-    // Set up directories
     let upload_dir = PathBuf::from("./uploads");
-    let clips_dir = PathBuf::from("./clips");
 
     tokio::fs::create_dir_all(&upload_dir).await?;
-    tokio::fs::create_dir_all(&clips_dir).await?;
 
     // Load backend config
     let backend = std::env::var("BOOMERANG_BACKEND").unwrap_or_else(|_| "gemini".to_string());
@@ -38,11 +35,10 @@ async fn main() -> anyhow::Result<()> {
         backend = %backend,
         model = ?model,
         uploads = %upload_dir.display(),
-        clips = %clips_dir.display(),
         "initialized backend and directories"
     );
 
-    let state = AppState::new(upload_dir, clips_dir, backend, model);
+    let state = AppState::new(upload_dir, backend, model);
     let app = routes::create_router(state);
 
     let addr = "127.0.0.1:8080";

@@ -1,12 +1,12 @@
 // Endpoint for uploading and indexing a video file (POST /index).
 
-use std::path::Path;
 use axum::{
     extract::{Multipart, State},
     response::IntoResponse,
     Json,
 };
 use serde::Serialize;
+use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;

@@ -3,16 +3,15 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
 
-export interface ClipResult {
+export interface MatchResult {
 	file: string;
 	start: number; // seconds
 	end: number; // seconds
 	score: number; // 0..1 cosine similarity
-	clip_url: string; // path or absolute url to the trimmed clip
 }
 
 export interface SearchResponse {
-	results: ClipResult[];
+	results: MatchResult[];
 }
 
 export interface IndexResponse {
@@ -20,12 +19,23 @@ export interface IndexResponse {
 	chunks: number;
 }
 
-export function clipUrl(path: string): string {
-	return path.startsWith('http') ? path : `${API_BASE}${path}`;
-}
-
 async function json<T>(res: Response): Promise<T> {
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+	if (!res.ok) {
+		let message = `${res.status} ${res.statusText}`;
+		const contentType = res.headers.get('content-type') ?? '';
+		if (contentType.includes('application/json')) {
+			const body = (await res.json()) as { error?: unknown };
+			if (typeof body.error === 'string' && body.error.trim()) {
+				message = body.error;
+			}
+		} else {
+			const body = await res.text();
+			if (body.trim()) {
+				message = body;
+			}
+		}
+		throw new Error(message);
+	}
 	return res.json() as Promise<T>;
 }
 
@@ -36,7 +46,7 @@ export async function indexVideo(file: File): Promise<IndexResponse> {
 	return json(await fetch(`${API_BASE}/index`, { method: 'POST', body }));
 }
 
-// POST /search — natural language query, returns ranked clips.
+// POST /search — natural language query, returns ranked time ranges.
 export async function search(
 	query: string,
 	opts: { results?: number; threshold?: number } = {}

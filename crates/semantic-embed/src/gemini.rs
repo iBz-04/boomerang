@@ -1,7 +1,10 @@
 //! Gemini Embedding API backend.
 //!
-//! Uses Google's Gemini Embedding 2 model which natively embeds video
-//! — raw pixels are projected into the same vector space as text queries.
+//! Uses Google's `gemini-embedding-2` multimodal model, which maps text,
+//! images, and video into one unified vector space. Documents (video/images)
+//! are embedded from raw bytes; text queries carry the asymmetric retrieval
+//! task prefix (`task: search result | query: ...`) so they align with the
+//! embedded documents.
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -154,11 +157,15 @@ impl Embedder for GeminiEmbedder {
     async fn embed_query(&self, query: &str) -> Result<Embedding, CoreError> {
         debug!(query, "embedding text query via Gemini");
 
+        // gemini-embedding-2 requires the asymmetric retrieval task prefix on
+        // queries so they project into the same space as embedded documents.
+        let formatted = format!("task: search result | query: {query}");
+
         let body = EmbedRequest {
             model: "models/gemini-embedding-2".into(),
             content: Content {
                 parts: vec![Part {
-                    text: Some(query.to_string()),
+                    text: Some(formatted),
                     inline_data: None,
                 }],
             },

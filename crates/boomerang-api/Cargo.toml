@@ -5,9 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# Web framework
 axum = { version = "0.7", features = ["multipart"] }
-tower-http = { version = "0.5", features = ["cors", "fs"] }
+tower-http = { version = "0.5", features = ["cors"] }
 
 # Async runtime
 tokio = { workspace = true }
@@ -42,4 +41,3 @@ video-chunking = { workspace = true }
 semantic-embed = { workspace = true }
 vector-store = { workspace = true }
 footage-search = { workspace = true }
-clip-trim = { workspace = true }

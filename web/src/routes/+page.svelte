@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { indexVideo, search, highlights, clipUrl, type ClipResult } from '$lib/api';
+	import { indexVideo, search, highlights, type MatchResult } from '$lib/api';
 
 	let fileInput = $state<HTMLInputElement>();
 	let videoEl = $state<HTMLVideoElement>();
@@ -7,7 +7,7 @@
 	let videoUrl = $state('');
 	let query = $state('');
 	let status = $state<'idle' | 'indexing' | 'ready' | 'searching'>('idle');
-	let result = $state<ClipResult | null>(null);
+	let results = $state<MatchResult[]>([]);
 	let error = $state('');
 
 	const busy = $derived(status === 'indexing' || status === 'searching');
@@ -19,11 +19,23 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	}
 
+	function seekToResult(match: MatchResult) {
+		if (!videoEl) {
+			throw new Error('video element is not ready');
+		}
+		if (!Number.isFinite(match.start) || match.start < 0) {
+			throw new Error(`invalid search result start time: ${match.start}`);
+		}
+
+		videoEl.currentTime = match.start;
+		void videoEl.play();
+	}
+
 	async function onFile(e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0];
 		if (!file) return;
 		error = '';
-		result = null;
+		results = [];
 		videoUrl = URL.createObjectURL(file);
 		status = 'indexing';
 		try {
@@ -35,15 +47,13 @@
 		}
 	}
 
-	async function show(promise: Promise<{ results: ClipResult[] }>) {
+	async function show(promise: Promise<{ results: MatchResult[] }>) {
 		error = '';
 		status = 'searching';
 		try {
 			const r = await promise;
-			result = r.results[0] ?? null;
-			if (result) {
-				videoUrl = clipUrl(result.clip_url);
-			} else {
+			results = r.results;
+			if (results.length === 0) {
 				error = "No matches found for this query. Try being more descriptive.";
 			}
 			status = 'ready';
@@ -72,18 +82,11 @@
 			<span class="badge logo">B</span>
 
 			{#if hasVideo}
-				<video bind:this={videoEl} src={videoUrl} playsinline controls>
-					<track kind="captions" />
-				</video>
-				{#if result}
-					<button class="marker target" onclick={() => videoEl?.play()}>
-						<span class="dot"></span>
-						<span class="tag">TARGET · {fmt(result.start)}</span>
-					</button>
-					<span class="marker camera">
-						<span class="tag">CAMERA · {Math.round(result.score * 100)}%</span>
-					</span>
-				{/if}
+				{#key videoUrl}
+					<video bind:this={videoEl} src={videoUrl} playsinline controls>
+						<track kind="captions" />
+					</video>
+				{/key}
 			{:else}
 				<button class="prompt" onclick={() => fileInput?.click()}>
 					<span class="cam-icon">⬡</span>
@@ -202,47 +205,6 @@
 
 	.prompt small {
 		font-size: 12px;
-	}
-
-	.marker {
-		position: absolute;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		border: none;
-		background: none;
-		cursor: pointer;
-		z-index: 2;
-	}
-
-	.target {
-		top: 34%;
-		right: 18%;
-		flex-direction: column;
-	}
-
-	.target .dot {
-		width: 40px;
-		height: 40px;
-		border-radius: 50%;
-		background: #e23744;
-		box-shadow: 0 0 0 6px rgba(226, 55, 68, 0.25);
-	}
-
-	.camera {
-		bottom: 22%;
-		left: 14%;
-	}
-
-	.tag {
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: 0.04em;
-		color: #fff;
-		background: rgba(0, 0, 0, 0.65);
-		padding: 5px 10px;
-		border-radius: 999px;
-		white-space: nowrap;
 	}
 
 	.overlay {

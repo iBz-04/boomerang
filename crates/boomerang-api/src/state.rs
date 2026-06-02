@@ -6,22 +6,15 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub upload_dir: PathBuf,
-    pub clips_dir: PathBuf,
     pub backend: String,
     pub model: Option<String>,
 }
 
 impl AppState {
     /// Create a new AppState with the given directories and configuration.
-    pub fn new(
-        upload_dir: PathBuf,
-        clips_dir: PathBuf,
-        backend: String,
-        model: Option<String>,
-    ) -> Self {
+    pub fn new(upload_dir: PathBuf, backend: String, model: Option<String>) -> Self {
         Self {
             upload_dir,
-            clips_dir,
             backend,
             model,
         }

@@ -1,16 +1,12 @@
 // Endpoint for searching indexed video footage by text query (POST /search).
 
-use std::path::Path;
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use boomerang_core::search::SearchConfig;
 use boomerang_core::types::EmbeddingSpace;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::error::ApiError;
+use crate::routes::match_result::{build_match_results, SearchResponse};
 use crate::state::AppState;
 
 /// Search request parameters.
@@ -19,22 +15,6 @@ pub struct SearchRequest {
     pub query: String,
     pub results: Option<usize>,
     pub threshold: Option<f64>,
-}
-
-/// A single matched clip result.
-#[derive(Serialize)]
-pub struct ClipResult {
-    pub file: String,
-    pub start: f64,
-    pub end: f64,
-    pub score: f64,
-    pub clip_url: String,
-}
-
-/// Search response envelope.
-#[derive(Serialize)]
-pub struct SearchResponse {
-    pub results: Vec<ClipResult>,
 }
 
 /// Helper to resolve the active indexed space or fall back to defaults.
@@ -68,51 +48,19 @@ pub async fn search_handler(
         dedupe_threshold: None,
     };
 
-    let results = footage_search::search_by_text(
-        store.as_ref(),
-        query_embedding.as_slice(),
-        &search_config,
-    )
-    .await?;
+    let results =
+        footage_search::search_by_text(store.as_ref(), query_embedding.as_slice(), &search_config)
+            .await?;
 
     if results.is_empty() {
         return Ok(Json(SearchResponse { results: vec![] }));
     }
 
     let limit = req.results.unwrap_or(5);
-    let clips = clip_trim::trim_top_results(&results, &state.clips_dir, limit).await?;
 
-    let clips_count = clips.len();
-    let clip_results = results
-        .into_iter()
-        .enumerate()
-        .filter(|(i, _)| *i < clips_count)
-        .map(|(i, r)| {
-            let clip_path = &clips[i];
-            let filename = clip_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            // Svelte client page expects the full source filename/path for displaying
-            let file_display = Path::new(&r.source_file)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            ClipResult {
-                file: file_display,
-                start: r.start_time,
-                end: r.end_time,
-                score: r.similarity_score,
-                clip_url: format!("/clips/{}", filename),
-            }
-        })
-        .collect();
+    let match_results = build_match_results(results, limit)?;
 
     Ok(Json(SearchResponse {
-        results: clip_results,
+        results: match_results,
     }))
 }

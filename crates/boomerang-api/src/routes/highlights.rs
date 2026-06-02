@@ -1,17 +1,12 @@
 // Endpoint for retrieving anomalous highlights from the indexed footage (POST /highlights).
 
-use std::path::Path;
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use boomerang_core::search::HighlightConfig;
 use boomerang_core::types::{EmbeddingSpace, ScoringMethod};
 use serde::Deserialize;
 
 use crate::error::ApiError;
-use crate::routes::search::{ClipResult, SearchResponse};
+use crate::routes::match_result::{build_match_results, SearchResponse};
 use crate::state::AppState;
 
 /// Highlights request parameters.
@@ -68,38 +63,9 @@ pub async fn highlights_handler(
         return Ok(Json(SearchResponse { results: vec![] }));
     }
 
-    let clips = clip_trim::trim_top_results(&results, &state.clips_dir, count).await?;
-
-    let clips_count = clips.len();
-    let clip_results = results
-        .into_iter()
-        .enumerate()
-        .filter(|(i, _)| *i < clips_count)
-        .map(|(i, r)| {
-            let clip_path = &clips[i];
-            let filename = clip_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            let file_display = Path::new(&r.source_file)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            ClipResult {
-                file: file_display,
-                start: r.start_time,
-                end: r.end_time,
-                score: r.similarity_score,
-                clip_url: format!("/clips/{}", filename),
-            }
-        })
-        .collect();
+    let match_results = build_match_results(results, count)?;
 
     Ok(Json(SearchResponse {
-        results: clip_results,
+        results: match_results,
     }))
 }

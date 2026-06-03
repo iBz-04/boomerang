@@ -11,8 +11,14 @@ pub struct SearchResult {
     pub start_time: f64,
     /// End time of the matching chunk in seconds.
     pub end_time: f64,
-    /// Cosine similarity score (0.0–1.0, higher is better).
+    /// Best raw similarity score reported by the vector store.
     pub similarity_score: f64,
+    /// Ranking score used for final ordering after fusion or reranking.
+    pub ranking_score: f64,
+    /// Number of query embeddings that retrieved this result.
+    pub support_count: usize,
+    /// Best zero-based rank this result reached in an individual retrieval.
+    pub best_rank: usize,
 }
 
 impl SearchResult {
@@ -22,7 +28,22 @@ impl SearchResult {
             start_time,
             end_time,
             similarity_score,
+            ranking_score: similarity_score,
+            support_count: 1,
+            best_rank: 0,
         }
+    }
+
+    pub fn with_ranking(
+        mut self,
+        ranking_score: f64,
+        support_count: usize,
+        best_rank: usize,
+    ) -> Self {
+        self.ranking_score = ranking_score;
+        self.support_count = support_count;
+        self.best_rank = best_rank;
+        self
     }
 }
 
@@ -37,6 +58,8 @@ pub struct SearchConfig {
     pub dedupe_threshold: Option<f64>,
     /// Optional source file scope for in-video retrieval.
     pub source_file: Option<String>,
+    /// Smoothing constant for reciprocal-rank fusion.
+    pub rank_fusion_k: f64,
 }
 
 impl Default for SearchConfig {
@@ -46,7 +69,34 @@ impl Default for SearchConfig {
             threshold: 0.41,
             dedupe_threshold: None,
             source_file: None,
+            rank_fusion_k: 60.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_result_new_uses_similarity_as_initial_ranking_score() {
+        let result = SearchResult::new("/video/a.mp4".to_string(), 1.0, 5.0, 0.72);
+
+        assert_eq!(result.similarity_score, 0.72);
+        assert_eq!(result.ranking_score, 0.72);
+        assert_eq!(result.support_count, 1);
+        assert_eq!(result.best_rank, 0);
+    }
+
+    #[test]
+    fn test_search_result_with_ranking_sets_ranking_metadata() {
+        let result =
+            SearchResult::new("/video/a.mp4".to_string(), 1.0, 5.0, 0.72).with_ranking(0.04, 3, 1);
+
+        assert_eq!(result.similarity_score, 0.72);
+        assert_eq!(result.ranking_score, 0.04);
+        assert_eq!(result.support_count, 3);
+        assert_eq!(result.best_rank, 1);
     }
 }
 

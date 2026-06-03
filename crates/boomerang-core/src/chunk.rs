@@ -75,10 +75,10 @@ pub struct ChunkingConfig {
 impl Default for ChunkingConfig {
     fn default() -> Self {
         Self {
-            chunk_duration: 30,
-            overlap: 5,
+            chunk_duration: 6,
+            overlap: 2,
             target_resolution: 480,
-            target_fps: 5,
+            target_fps: 4,
             skip_preprocess: false,
             skip_still_detection: false,
         }

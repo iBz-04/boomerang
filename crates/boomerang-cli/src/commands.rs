@@ -10,6 +10,7 @@ use boomerang_core::search::{HighlightConfig, SearchConfig};
 use boomerang_core::types::EmbeddingSpace;
 use tracing::info;
 
+use crate::temporal_refine::refine_search_results;
 use crate::{HighlightsArgs, ImgArgs, IndexArgs, RemoveArgs, SearchArgs};
 
 /// Initialize configuration and validate API keys.
@@ -95,9 +96,13 @@ pub async fn index(args: IndexArgs) -> Result<()> {
 
     for video_file in &video_files {
         let filename = video_file.file_name().unwrap_or_default().to_string_lossy();
+        let canonical_video_file = video_file
+            .canonicalize()
+            .context(format!("failed to canonicalize {}", video_file.display()))?;
+        let canonical_video_file_str = canonical_video_file.to_string_lossy().to_string();
 
         // Skip already-indexed files
-        if store.is_file_indexed(&video_file.to_string_lossy()).await? {
+        if store.is_file_indexed(&canonical_video_file_str).await? {
             info!(file = %filename, "already indexed, skipping");
             continue;
         }
@@ -187,11 +192,13 @@ pub async fn search(args: SearchArgs) -> Result<()> {
         threshold: args.threshold,
         dedupe_threshold: args.dedupe,
         source_file: None,
+        rank_fusion_k: 60.0,
     };
 
     let results =
         footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
             .await?;
+    let results = refine_search_results(results, &embeddings, embedder.as_ref()).await?;
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");
@@ -205,9 +212,10 @@ pub async fn search(args: SearchArgs) -> Result<()> {
             .unwrap_or_default()
             .to_string_lossy();
         println!(
-            "  #{:<2} [{:.2}] {} @ {}s-{}s",
+            "  #{:<2} [sim {:.2} rank {:.4}] {} @ {}s-{}s",
             i + 1,
             result.similarity_score,
+            result.ranking_score,
             filename,
             result.start_time,
             result.end_time
@@ -244,11 +252,15 @@ pub async fn img(args: ImgArgs) -> Result<()> {
         threshold: args.threshold,
         dedupe_threshold: args.dedupe,
         source_file: None,
+        rank_fusion_k: 60.0,
     };
 
     let results =
         footage_search::search_by_image(store.as_ref(), image_embedding.as_slice(), &search_config)
             .await?;
+    let image_query_embeddings = vec![image_embedding.clone()];
+    let results =
+        refine_search_results(results, &image_query_embeddings, embedder.as_ref()).await?;
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");
@@ -261,9 +273,10 @@ pub async fn img(args: ImgArgs) -> Result<()> {
             .unwrap_or_default()
             .to_string_lossy();
         println!(
-            "  #{:<2} [{:.2}] {} @ {}s-{}s",
+            "  #{:<2} [sim {:.2} rank {:.4}] {} @ {}s-{}s",
             i + 1,
             result.similarity_score,
+            result.ranking_score,
             filename,
             result.start_time,
             result.end_time

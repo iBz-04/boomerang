@@ -4,6 +4,7 @@
 //! parsing, logging setup, and command dispatch.
 
 mod commands;
+mod temporal_refine;
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -61,11 +62,11 @@ struct IndexArgs {
     model: Option<String>,
 
     /// Duration of each chunk in seconds.
-    #[arg(long, default_value = "30")]
+    #[arg(long, default_value = "6")]
     chunk_duration: u32,
 
     /// Overlap between chunks in seconds.
-    #[arg(long, default_value = "5")]
+    #[arg(long, default_value = "2")]
     overlap: u32,
 
     /// Skip preprocessing (downscale + fps reduction).
@@ -81,7 +82,7 @@ struct IndexArgs {
     target_resolution: u32,
 
     /// Target frames per second for preprocessing.
-    #[arg(long, default_value = "5")]
+    #[arg(long, default_value = "4")]
     target_fps: u32,
 }
 

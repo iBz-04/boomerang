@@ -45,6 +45,11 @@ pub async fn search_with_embedding(
     );
 
     hits.sort_by(|a, b| b.similarity_score.total_cmp(&a.similarity_score));
+    for (rank, hit) in hits.iter_mut().enumerate() {
+        hit.ranking_score = hit.similarity_score;
+        hit.support_count = 1;
+        hit.best_rank = rank;
+    }
 
     let below_threshold_count = hits
         .iter()

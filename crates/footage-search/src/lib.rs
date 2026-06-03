@@ -20,7 +20,7 @@ pub async fn search_by_text(
     search::search_with_embedding(store, query_embedding, config).await
 }
 
-/// Search with multiple query embeddings and merge by best score per chunk.
+/// Search with multiple query embeddings and rank by fused retrieval evidence.
 pub async fn search_by_embeddings(
     store: &dyn VectorStore,
     query_embeddings: &[&[f32]],

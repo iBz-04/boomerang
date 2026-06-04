@@ -241,7 +241,7 @@ impl VectorStore for QdrantStore {
                         payload.indexed_at, self.collection_name, error
                     ))
                 })?;
-                embeddings.push(Embedding::new(vector.clone()));
+                embeddings.push(Embedding::new(vector.clone())?);
                 metadatas.push(ChunkMetadata {
                     source_file: payload.source_file.clone(),
                     start_time: payload.start_time,
@@ -297,7 +297,7 @@ impl VectorStore for QdrantStore {
                         payload.indexed_at, self.collection_name, error
                     ))
                 })?;
-                embeddings.push(Embedding::new(vector.clone()));
+                embeddings.push(Embedding::new(vector.clone())?);
                 metadatas.push(ChunkMetadata {
                     source_file: payload.source_file.clone(),
                     start_time: payload.start_time,

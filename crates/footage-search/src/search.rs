@@ -23,7 +23,7 @@ pub async fn search_with_embedding(
         "search engine received query embedding"
     );
 
-    let query = Embedding::new(query_embedding.to_vec());
+    let query = Embedding::new(query_embedding.to_vec())?;
     let candidate_limit = candidate_limit(config.max_results);
     info!(
         candidate_limit,

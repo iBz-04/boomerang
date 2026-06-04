@@ -24,7 +24,7 @@ pub async fn search_with_embeddings(
     let mut merged: Vec<MergedHit> = Vec::new();
 
     for query_embedding in query_embeddings {
-        let query = Embedding::new((*query_embedding).to_vec());
+        let query = Embedding::new((*query_embedding).to_vec())?;
         let mut hits = if let Some(source_file) = config.source_file.as_deref() {
             store
                 .search_by_source_file(&query, per_query_candidates, source_file)

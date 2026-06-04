@@ -1,237 +1,385 @@
-// Temporal refinement narrows coarse retrieval spans to short clip windows.
+//! Temporal reranking expands top hits with neighboring indexed chunks.
 
-use std::path::Path;
-
-use anyhow::Result;
-use boomerang_core::chunk::ChunkingConfig;
-use boomerang_core::embedding::{Embedder, Embedding};
+use boomerang_core::chunk::ChunkMetadata;
+use boomerang_core::embedding::Embedding;
 use boomerang_core::search::SearchResult;
+use boomerang_core::store::VectorStore;
 
-const MAX_RESULT_DURATION_SECONDS: f64 = 6.0;
+const MAX_REFINED_DURATION_SECONDS: f64 = 24.0;
+const REFINE_DEDUPE_THRESHOLD: f64 = 0.6;
 const REFINE_TOP_RESULTS: usize = 3;
-const REFINE_STRIDE_SECONDS: f64 = 3.0;
-const REFINE_RANK_FUSION_K: f64 = 20.0;
+const TEMPORAL_BASELINE_MARGIN: f64 = 0.03;
+const CONTIGUITY_EPSILON_SECONDS: f64 = 0.25;
 
 pub async fn refine_search_results(
     results: Vec<SearchResult>,
     query_embeddings: &[Embedding],
-    embedder: &dyn Embedder,
-) -> Result<Vec<SearchResult>> {
+    store: &dyn VectorStore,
+    threshold: f64,
+) -> Result<Vec<SearchResult>, boomerang_core::error::CoreError> {
     if results.is_empty() || query_embeddings.is_empty() {
         return Ok(results);
     }
 
-    let temp_dir = tempfile::tempdir()?;
+    let mut cache = std::collections::HashMap::<String, SourceSequence>::new();
     let mut refined = Vec::with_capacity(results.len());
 
     for (index, result) in results.into_iter().enumerate() {
-        if index >= REFINE_TOP_RESULTS || result_duration(&result) <= MAX_RESULT_DURATION_SECONDS {
-            refined.push(clamp_result_duration(result, MAX_RESULT_DURATION_SECONDS));
+        if index >= REFINE_TOP_RESULTS {
+            refined.push(result);
             continue;
         }
 
-        refined.push(refine_result(result, query_embeddings, embedder, temp_dir.path()).await?);
+        let source_file = result.source_file.clone();
+        let sequence = match cache.entry(source_file.clone()) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let (embeddings, metadatas) = store.fetch_by_source_file(&source_file).await?;
+                entry.insert(SourceSequence::new(
+                    embeddings,
+                    metadatas,
+                    query_embeddings,
+                    threshold,
+                ))
+            }
+        };
+        refined.push(sequence.refine_result(result, threshold));
     }
 
-    Ok(refined)
+    refined.sort_by(compare_results);
+    Ok(deduplicate_results(refined, REFINE_DEDUPE_THRESHOLD))
 }
 
-#[cfg(test)]
-fn max_result_duration_seconds() -> f64 {
-    MAX_RESULT_DURATION_SECONDS
-}
-
-async fn refine_result(
-    result: SearchResult,
-    query_embeddings: &[Embedding],
-    embedder: &dyn Embedder,
-    temp_dir: &Path,
-) -> Result<SearchResult> {
-    let windows = candidate_windows(
-        result.start_time,
-        result.end_time,
-        MAX_RESULT_DURATION_SECONDS,
-    );
-    if windows.len() <= 1 {
-        return Ok(clamp_result_duration(result, MAX_RESULT_DURATION_SECONDS));
-    }
-
-    let mut candidates = Vec::with_capacity(windows.len());
-    for (index, (start_time, end_time)) in windows.iter().copied().enumerate() {
-        let clip_path = temp_dir.join(format!(
-            "refine_{}_{}_{}.mp4",
-            sanitize_source_file(&result.source_file),
-            index,
-            start_time.to_bits()
-        ));
-        let trimmed = clip_trim::trim_clip(
-            Path::new(&result.source_file),
-            start_time,
-            end_time,
-            &clip_path,
-            0.0,
-        )
-        .await?;
-        let processed =
-            video_chunking::chunker::preprocess_chunk(&trimmed, &refine_chunking_config()).await?;
-        let embedding = embedder.embed_video(&processed.to_string_lossy()).await?;
-        candidates.push(WindowCandidate {
-            start_time,
-            end_time,
-            embedding,
-            fused_rank_score: 0.0,
-            best_similarity: f64::NEG_INFINITY,
-            support_count: 0,
-            best_rank: usize::MAX,
-        });
-    }
-
-    for query_embedding in query_embeddings {
-        let mut ranking: Vec<(usize, f64)> = candidates
-            .iter()
-            .enumerate()
-            .map(|(index, candidate)| {
-                (
-                    index,
-                    cosine_similarity(query_embedding.as_slice(), candidate.embedding.as_slice()),
-                )
-            })
-            .collect();
-        ranking.sort_by(|left, right| right.1.total_cmp(&left.1));
-
-        for (rank, (candidate_index, similarity)) in ranking.into_iter().enumerate() {
-            let candidate = &mut candidates[candidate_index];
-            candidate.fused_rank_score += reciprocal_rank(rank);
-            candidate.best_similarity = candidate.best_similarity.max(similarity);
-            candidate.support_count += 1;
-            candidate.best_rank = candidate.best_rank.min(rank);
-        }
-    }
-
-    candidates.sort_by(compare_candidates);
-    let best = candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("temporal refinement produced no candidates"))?;
-
-    let mut refined = result;
-    refined.start_time = best.start_time;
-    refined.end_time = best.end_time;
-    refined.similarity_score = best.best_similarity;
-    Ok(refined.with_ranking(best.fused_rank_score, best.support_count, best.best_rank))
-}
-
-fn clamp_result_duration(mut result: SearchResult, max_duration_seconds: f64) -> SearchResult {
-    if result_duration(&result) > max_duration_seconds {
-        result.end_time = result.start_time + max_duration_seconds;
-    }
-    result
-}
-
-fn result_duration(result: &SearchResult) -> f64 {
-    result.end_time - result.start_time
-}
-
-fn candidate_windows(start_time: f64, end_time: f64, window_duration: f64) -> Vec<(f64, f64)> {
-    let duration = end_time - start_time;
-    if duration <= window_duration {
-        return vec![(start_time, end_time)];
-    }
-
-    let mut windows = Vec::new();
-    let mut window_start = start_time;
-    while window_start + window_duration < end_time {
-        windows.push((window_start, window_start + window_duration));
-        window_start += REFINE_STRIDE_SECONDS.min(window_duration);
-    }
-    windows.push((end_time - window_duration, end_time));
-    windows.dedup_by(|left, right| {
-        left.0.to_bits() == right.0.to_bits() && left.1.to_bits() == right.1.to_bits()
-    });
-    windows
-}
-
-fn refine_chunking_config() -> ChunkingConfig {
-    ChunkingConfig::default()
-}
-
-fn reciprocal_rank(rank: usize) -> f64 {
-    1.0 / (REFINE_RANK_FUSION_K + rank as f64 + 1.0)
-}
-
-fn cosine_similarity(left: &[f32], right: &[f32]) -> f64 {
-    let mut dot = 0.0f64;
-    let mut left_norm = 0.0f64;
-    let mut right_norm = 0.0f64;
-
-    for (left_value, right_value) in left.iter().zip(right.iter()) {
-        let left_value = f64::from(*left_value);
-        let right_value = f64::from(*right_value);
-        dot += left_value * right_value;
-        left_norm += left_value * left_value;
-        right_norm += right_value * right_value;
-    }
-
-    if left_norm <= f64::EPSILON || right_norm <= f64::EPSILON {
-        return f64::NEG_INFINITY;
-    }
-
-    dot / (left_norm.sqrt() * right_norm.sqrt())
-}
-
-fn compare_candidates(left: &WindowCandidate, right: &WindowCandidate) -> std::cmp::Ordering {
+fn compare_results(left: &SearchResult, right: &SearchResult) -> std::cmp::Ordering {
     right
-        .fused_rank_score
-        .total_cmp(&left.fused_rank_score)
-        .then_with(|| right.best_similarity.total_cmp(&left.best_similarity))
+        .ranking_score
+        .total_cmp(&left.ranking_score)
+        .then_with(|| right.similarity_score.total_cmp(&left.similarity_score))
         .then_with(|| left.start_time.total_cmp(&right.start_time))
 }
 
-fn sanitize_source_file(source_file: &str) -> String {
-    Path::new(source_file)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("clip")
-        .chars()
-        .map(|value| {
-            if value.is_ascii_alphanumeric() || value == '-' || value == '_' {
-                value
-            } else {
-                '_'
+fn deduplicate_results(results: Vec<SearchResult>, threshold: f64) -> Vec<SearchResult> {
+    let mut kept = Vec::new();
+
+    for result in results {
+        let duplicate = kept.iter().any(|existing: &SearchResult| {
+            if existing.source_file != result.source_file {
+                return false;
             }
-        })
-        .collect()
+
+            let overlap_start = existing.start_time.max(result.start_time);
+            let overlap_end = existing.end_time.min(result.end_time);
+            let overlap = (overlap_end - overlap_start).max(0.0);
+            let min_duration =
+                (existing.end_time - existing.start_time).min(result.end_time - result.start_time);
+            min_duration > 0.0 && overlap / min_duration > threshold
+        });
+
+        if !duplicate {
+            kept.push(result);
+        }
+    }
+
+    kept
 }
 
-struct WindowCandidate {
+struct SourceSequence {
+    chunks: Vec<ScoredChunk>,
+}
+
+impl SourceSequence {
+    fn new(
+        embeddings: Vec<Embedding>,
+        metadatas: Vec<ChunkMetadata>,
+        query_embeddings: &[Embedding],
+        threshold: f64,
+    ) -> Self {
+        let baseline = (threshold - TEMPORAL_BASELINE_MARGIN).max(0.0);
+        let mut chunks = embeddings
+            .into_iter()
+            .zip(metadatas)
+            .map(|(embedding, metadata)| ScoredChunk {
+                start_time: metadata.start_time,
+                end_time: metadata.end_time,
+                similarity: fused_similarity(query_embeddings, &embedding),
+                contribution: fused_similarity(query_embeddings, &embedding) - baseline,
+            })
+            .collect::<Vec<_>>();
+        chunks.sort_by(|left, right| left.start_time.total_cmp(&right.start_time));
+        Self { chunks }
+    }
+
+    fn refine_result(&self, mut result: SearchResult, threshold: f64) -> SearchResult {
+        if self.chunks.is_empty() {
+            return result;
+        }
+
+        let baseline = (threshold - TEMPORAL_BASELINE_MARGIN).max(0.0);
+        let anchor_indices = self.anchor_indices(&result);
+        let best_interval = anchor_indices
+            .into_iter()
+            .filter_map(|anchor| self.best_interval_containing(anchor, baseline))
+            .max_by(compare_interval)
+            .unwrap_or_else(|| ChunkInterval::single(self.best_anchor(&result), &self.chunks));
+
+        result.start_time = best_interval.start_time;
+        result.end_time = best_interval.end_time;
+        result.similarity_score = best_interval.peak_similarity;
+        result.ranking_score += best_interval.gain;
+        result
+    }
+
+    fn anchor_indices(&self, result: &SearchResult) -> Vec<usize> {
+        let overlapping = self
+            .chunks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, chunk)| {
+                let overlap_start = chunk.start_time.max(result.start_time);
+                let overlap_end = chunk.end_time.min(result.end_time);
+                if overlap_end - overlap_start > CONTIGUITY_EPSILON_SECONDS {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if overlapping.is_empty() {
+            vec![self.best_anchor(result)]
+        } else {
+            overlapping
+        }
+    }
+
+    fn best_anchor(&self, result: &SearchResult) -> usize {
+        let target_midpoint = (result.start_time + result.end_time) / 2.0;
+        self.chunks
+            .iter()
+            .enumerate()
+            .min_by(|(_, left), (_, right)| {
+                let left_midpoint = (left.start_time + left.end_time) / 2.0;
+                let right_midpoint = (right.start_time + right.end_time) / 2.0;
+                (left_midpoint - target_midpoint)
+                    .abs()
+                    .total_cmp(&(right_midpoint - target_midpoint).abs())
+            })
+            .map(|(index, _)| index)
+            .unwrap_or(0)
+    }
+
+    fn best_interval_containing(&self, anchor: usize, baseline: f64) -> Option<ChunkInterval> {
+        let left_bound = self.left_bound(anchor);
+        let right_bound = self.right_bound(anchor);
+        let mut best: Option<ChunkInterval> = None;
+
+        for start in left_bound..=anchor {
+            for end in anchor..=right_bound {
+                let start_time = self.chunks[start].start_time;
+                let end_time = self.chunks[end].end_time;
+                if end_time - start_time > MAX_REFINED_DURATION_SECONDS {
+                    continue;
+                }
+
+                let interval = ChunkInterval::from_range(&self.chunks[start..=end], baseline);
+                if best
+                    .as_ref()
+                    .is_none_or(|existing| compare_interval(&interval, existing).is_gt())
+                {
+                    best = Some(interval);
+                }
+            }
+        }
+
+        best
+    }
+
+    fn left_bound(&self, anchor: usize) -> usize {
+        let mut index = anchor;
+        while index > 0 {
+            let current = &self.chunks[index];
+            let previous = &self.chunks[index - 1];
+            if current.start_time - previous.end_time > CONTIGUITY_EPSILON_SECONDS {
+                break;
+            }
+            if current.end_time - previous.start_time > MAX_REFINED_DURATION_SECONDS {
+                break;
+            }
+            index -= 1;
+        }
+        index
+    }
+
+    fn right_bound(&self, anchor: usize) -> usize {
+        let mut index = anchor;
+        while index + 1 < self.chunks.len() {
+            let current = &self.chunks[index];
+            let next = &self.chunks[index + 1];
+            if next.start_time - current.end_time > CONTIGUITY_EPSILON_SECONDS {
+                break;
+            }
+            if next.end_time - self.chunks[anchor].start_time > MAX_REFINED_DURATION_SECONDS {
+                break;
+            }
+            index += 1;
+        }
+        index
+    }
+}
+
+fn compare_interval(left: &ChunkInterval, right: &ChunkInterval) -> std::cmp::Ordering {
+    left.gain
+        .total_cmp(&right.gain)
+        .then_with(|| left.peak_similarity.total_cmp(&right.peak_similarity))
+        .then_with(|| {
+            (right.end_time - right.start_time).total_cmp(&(left.end_time - left.start_time))
+        })
+}
+
+fn fused_similarity(query_embeddings: &[Embedding], candidate: &Embedding) -> f64 {
+    let mut best = f64::NEG_INFINITY;
+    let mut total = 0.0;
+
+    for query_embedding in query_embeddings {
+        let similarity = cosine_similarity(query_embedding.as_slice(), candidate.as_slice());
+        best = best.max(similarity);
+        total += similarity;
+    }
+
+    let mean = total / query_embeddings.len() as f64;
+    0.75 * best + 0.25 * mean
+}
+
+fn cosine_similarity(left: &[f32], right: &[f32]) -> f64 {
+    left.iter()
+        .zip(right.iter())
+        .map(|(left_value, right_value)| f64::from(*left_value) * f64::from(*right_value))
+        .sum()
+}
+
+#[derive(Clone)]
+struct ScoredChunk {
     start_time: f64,
     end_time: f64,
-    embedding: Embedding,
-    fused_rank_score: f64,
-    best_similarity: f64,
-    support_count: usize,
-    best_rank: usize,
+    similarity: f64,
+    contribution: f64,
+}
+
+#[derive(Clone)]
+struct ChunkInterval {
+    start_time: f64,
+    end_time: f64,
+    peak_similarity: f64,
+    gain: f64,
+}
+
+impl ChunkInterval {
+    fn single(index: usize, chunks: &[ScoredChunk]) -> Self {
+        Self::from_range(&chunks[index..=index], 0.0)
+    }
+
+    fn from_range(chunks: &[ScoredChunk], baseline: f64) -> Self {
+        let start_time = chunks.first().map(|chunk| chunk.start_time).unwrap_or(0.0);
+        let end_time = chunks
+            .last()
+            .map(|chunk| chunk.end_time)
+            .unwrap_or(start_time);
+        let peak_similarity = chunks
+            .iter()
+            .map(|chunk| chunk.similarity)
+            .max_by(|left, right| left.total_cmp(right))
+            .unwrap_or(baseline);
+        let gain = chunks.iter().map(|chunk| chunk.contribution).sum();
+
+        Self {
+            start_time,
+            end_time,
+            peak_similarity,
+            gain,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_candidate_windows_limits_results_to_six_second_spans() {
-        let windows = candidate_windows(0.0, 30.0, max_result_duration_seconds());
+    fn embedding(values: Vec<f32>) -> Embedding {
+        Embedding::new(values).expect("embedding should normalize")
+    }
 
-        assert!(windows.iter().all(|(start, end)| end - start <= 6.0));
-        assert_eq!(windows.first().copied(), Some((0.0, 6.0)));
-        assert_eq!(windows.last().copied(), Some((24.0, 30.0)));
+    fn metadata(start_time: f64, end_time: f64) -> ChunkMetadata {
+        ChunkMetadata {
+            source_file: "/tmp/video.mp4".into(),
+            start_time,
+            end_time,
+            indexed_at: chrono::Utc::now(),
+            backend: boomerang_core::types::EmbeddingBackend::Gemini,
+            model: None,
+            dimensions: 2,
+        }
     }
 
     #[test]
-    fn test_clamp_result_duration_shortens_long_results() {
-        let result = SearchResult::new("/tmp/a.mp4".to_string(), 0.0, 30.0, 0.8);
-        let clamped = clamp_result_duration(result, 6.0);
+    fn test_refine_result_expands_over_supported_neighbors() {
+        let sequence = SourceSequence::new(
+            vec![
+                embedding(vec![1.0, 0.0]),
+                embedding(vec![0.95, 0.05]),
+                embedding(vec![0.9, 0.1]),
+                embedding(vec![0.0, 1.0]),
+            ],
+            vec![
+                metadata(0.0, 6.0),
+                metadata(4.0, 10.0),
+                metadata(8.0, 14.0),
+                metadata(12.0, 18.0),
+            ],
+            &[embedding(vec![1.0, 0.0])],
+            0.41,
+        );
+        let refined = sequence.refine_result(
+            SearchResult::new("/tmp/video.mp4".into(), 4.0, 10.0, 0.9),
+            0.41,
+        );
 
-        assert_eq!(clamped.start_time, 0.0);
-        assert_eq!(clamped.end_time, 6.0);
+        assert_eq!(refined.start_time, 0.0);
+        assert_eq!(refined.end_time, 14.0);
+        assert!(refined.similarity_score > 0.9);
+    }
+
+    #[test]
+    fn test_refine_result_keeps_anchor_when_neighbors_are_off_topic() {
+        let sequence = SourceSequence::new(
+            vec![
+                embedding(vec![0.0, 1.0]),
+                embedding(vec![1.0, 0.0]),
+                embedding(vec![0.0, 1.0]),
+            ],
+            vec![metadata(0.0, 6.0), metadata(4.0, 10.0), metadata(8.0, 14.0)],
+            &[embedding(vec![1.0, 0.0])],
+            0.41,
+        );
+        let refined = sequence.refine_result(
+            SearchResult::new("/tmp/video.mp4".into(), 4.0, 10.0, 0.9),
+            0.41,
+        );
+
+        assert_eq!(refined.start_time, 4.0);
+        assert_eq!(refined.end_time, 10.0);
+    }
+
+    #[test]
+    fn test_deduplicate_results_removes_expanded_overlap() {
+        let deduped = deduplicate_results(
+            vec![
+                SearchResult::new("/tmp/video.mp4".into(), 0.0, 14.0, 0.92).with_ranking(2.0, 2, 0),
+                SearchResult::new("/tmp/video.mp4".into(), 4.0, 10.0, 0.9).with_ranking(1.0, 1, 1),
+            ],
+            0.6,
+        );
+
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].start_time, 0.0);
+        assert_eq!(deduped[0].end_time, 14.0);
     }
 }

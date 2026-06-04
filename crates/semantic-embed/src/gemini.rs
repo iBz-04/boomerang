@@ -150,7 +150,7 @@ impl Embedder for GeminiEmbedder {
         let values = self.send_request(&body).await?;
 
         info!(dimensions = values.len(), "video embedded");
-        Ok(Embedding::new(values))
+        Embedding::new(values)
     }
 
     async fn embed_query(&self, query: &str) -> Result<Embedding, CoreError> {
@@ -168,7 +168,7 @@ impl Embedder for GeminiEmbedder {
         };
 
         let values = self.send_request(&body).await?;
-        Ok(Embedding::new(values))
+        Embedding::new(values)
     }
 
     async fn embed_image(&self, image_path: &str) -> Result<Embedding, CoreError> {
@@ -193,7 +193,7 @@ impl Embedder for GeminiEmbedder {
         };
 
         let values = self.send_request(&body).await?;
-        Ok(Embedding::new(values))
+        Embedding::new(values)
     }
 
     fn dimensions(&self) -> usize {

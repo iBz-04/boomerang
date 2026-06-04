@@ -198,7 +198,8 @@ pub async fn search(args: SearchArgs) -> Result<()> {
     let results =
         footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
             .await?;
-    let results = refine_search_results(results, &embeddings, embedder.as_ref()).await?;
+    let results =
+        refine_search_results(results, &embeddings, store.as_ref(), args.threshold).await?;
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");
@@ -259,8 +260,13 @@ pub async fn img(args: ImgArgs) -> Result<()> {
         footage_search::search_by_image(store.as_ref(), image_embedding.as_slice(), &search_config)
             .await?;
     let image_query_embeddings = vec![image_embedding.clone()];
-    let results =
-        refine_search_results(results, &image_query_embeddings, embedder.as_ref()).await?;
+    let results = refine_search_results(
+        results,
+        &image_query_embeddings,
+        store.as_ref(),
+        args.threshold,
+    )
+    .await?;
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");
@@ -304,8 +310,9 @@ pub async fn highlights(args: HighlightsArgs) -> Result<()> {
         "centroid" => boomerang_core::types::ScoringMethod::Centroid,
         "knn" => boomerang_core::types::ScoringMethod::Knn,
         "lof" => boomerang_core::types::ScoringMethod::Lof,
+        "local-contrast" => boomerang_core::types::ScoringMethod::LocalContrast,
         _ => anyhow::bail!(
-            "unknown scoring method: {}. Use centroid, knn, or lof.",
+            "unknown scoring method: {}. Use centroid, knn, lof, or local-contrast.",
             args.method
         ),
     };

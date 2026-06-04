@@ -13,4 +13,5 @@ ndarray.workspace = true
 async-trait.workspace = true
 
 [dev-dependencies]
+chrono.workspace = true
 proptest.workspace = true

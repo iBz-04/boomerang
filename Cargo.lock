@@ -356,6 +356,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "boomerang-core",
+ "chrono",
  "ndarray",
  "proptest",
  "thiserror",

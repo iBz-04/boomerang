@@ -45,7 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 model: space.model.clone(),
                 dimensions: DIMENSIONS,
             };
-            (id, Embedding::new(embedding.clone()), metadata)
+            (
+                id,
+                Embedding::new(embedding.clone())
+                    .expect("benchmark embeddings must have non-zero norm"),
+                metadata,
+            )
         })
         .collect();
     for batch in entries.chunks(UPSERT_BATCH) {
@@ -56,7 +61,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let qdrant_start = Instant::now();
     for query in &queries {
-        let embedding = Embedding::new(query.clone());
+        let embedding =
+            Embedding::new(query.clone()).expect("benchmark query must have non-zero norm");
         let results = store.search(&embedding, TOP_K).await?;
         assert_eq!(results.len(), TOP_K);
     }

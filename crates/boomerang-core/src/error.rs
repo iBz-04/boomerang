@@ -5,6 +5,9 @@ use thiserror::Error;
 /// Errors that can occur across boomerang crates.
 #[derive(Error, Debug)]
 pub enum CoreError {
+    #[error("invalid embedding: {0}")]
+    InvalidEmbedding(String),
+
     #[error("video file not found: {0}")]
     FileNotFound(String),
 

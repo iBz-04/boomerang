@@ -13,13 +13,61 @@ pub struct Embedding {
 }
 
 impl Embedding {
-    pub fn new(data: Vec<f32>) -> Self {
+    pub fn new(mut data: Vec<f32>) -> Result<Self, CoreError> {
+        if data.is_empty() {
+            return Err(CoreError::InvalidEmbedding(
+                "embedding vector must not be empty".into(),
+            ));
+        }
+
+        let norm = data
+            .iter()
+            .map(|value| f64::from(*value) * f64::from(*value))
+            .sum::<f64>()
+            .sqrt();
+        if norm <= f64::EPSILON {
+            return Err(CoreError::InvalidEmbedding(
+                "embedding vector must have non-zero norm".into(),
+            ));
+        }
+
+        let inverse_norm = (1.0 / norm) as f32;
+        for value in &mut data {
+            *value *= inverse_norm;
+        }
+
         let dimensions = data.len();
-        Self { data, dimensions }
+        Ok(Self { data, dimensions })
     }
 
     pub fn as_slice(&self) -> &[f32] {
         &self.data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_normalizes_embedding_to_unit_length() {
+        let embedding = Embedding::new(vec![3.0, 4.0]).expect("embedding should normalize");
+        let norm = embedding
+            .as_slice()
+            .iter()
+            .map(|value| f64::from(*value) * f64::from(*value))
+            .sum::<f64>()
+            .sqrt();
+
+        assert!((norm - 1.0).abs() < 1e-6);
+        assert_eq!(embedding.dimensions, 2);
+    }
+
+    #[test]
+    fn test_new_rejects_zero_norm_embedding() {
+        let error = Embedding::new(vec![0.0, 0.0]).expect_err("zero vector should fail");
+
+        assert!(matches!(error, CoreError::InvalidEmbedding(_)));
     }
 }
 

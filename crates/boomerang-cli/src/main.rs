@@ -180,7 +180,7 @@ struct HighlightsArgs {
     #[arg(long)]
     model: Option<String>,
 
-    /// Scoring method: centroid, knn, lof.
+    /// Scoring method: centroid, knn, lof, local-contrast.
     #[arg(long, default_value = "knn")]
     method: String,
 

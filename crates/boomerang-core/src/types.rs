@@ -125,6 +125,7 @@ pub enum ScoringMethod {
     Centroid,
     Knn,
     Lof,
+    LocalContrast,
 }
 
 impl ScoringMethod {
@@ -133,6 +134,7 @@ impl ScoringMethod {
             Self::Centroid => "centroid",
             Self::Knn => "knn",
             Self::Lof => "lof",
+            Self::LocalContrast => "local-contrast",
         }
     }
 }

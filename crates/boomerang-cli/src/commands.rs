@@ -265,16 +265,23 @@ pub async fn img(args: ImgArgs) -> Result<()> {
             .await?;
     let image_query_embeddings = vec![image_embedding.clone()];
     let results = match args.match_mode {
-        SearchMatchMode::Exact => refine_search_results_exact(
-            results,
-            &image_query_embeddings,
-            embedder.as_ref(),
-            args.threshold,
-        )
-        .await?,
+        SearchMatchMode::Exact => {
+            refine_search_results_exact(
+                results,
+                &image_query_embeddings,
+                embedder.as_ref(),
+                args.threshold,
+            )
+            .await?
+        }
         SearchMatchMode::Span => {
-            refine_search_results(results, &image_query_embeddings, store.as_ref(), args.threshold)
-                .await?
+            refine_search_results(
+                results,
+                &image_query_embeddings,
+                store.as_ref(),
+                args.threshold,
+            )
+            .await?
         }
     };
 

@@ -40,8 +40,15 @@ pub async fn refine_search_results_exact(
         }
 
         refined.push(
-            refine_result_exact(result, index, query_embeddings, embedder, threshold, &temp_dir)
-                .await?,
+            refine_result_exact(
+                result,
+                index,
+                query_embeddings,
+                embedder,
+                threshold,
+                &temp_dir,
+            )
+            .await?,
         );
     }
 
@@ -57,8 +64,8 @@ async fn refine_result_exact(
     temp_dir: &TempDir,
 ) -> Result<SearchResult, CoreError> {
     let candidate_start = result.start_time.max(0.0);
-    let candidate_end = (result.end_time + EXACT_RIGHT_PADDING_SECONDS)
-        .max(candidate_start + EXACT_WINDOW_SECONDS);
+    let candidate_end =
+        (result.end_time + EXACT_RIGHT_PADDING_SECONDS).max(candidate_start + EXACT_WINDOW_SECONDS);
     let windows = build_window_scores(
         &result.source_file,
         result_index,
@@ -96,7 +103,9 @@ async fn build_window_scores(
     for (window_index, span) in spans.into_iter().enumerate() {
         let window_path = output_dir.join(format!("exact_{result_index}_{window_index}.mp4"));
         extract_window(source_file, span.start_time, span.end_time, &window_path).await?;
-        let embedding = embedder.embed_video(window_path.to_string_lossy().as_ref()).await?;
+        let embedding = embedder
+            .embed_video(window_path.to_string_lossy().as_ref())
+            .await?;
         windows.push(ScoredWindow {
             start_time: span.start_time,
             end_time: span.end_time,
@@ -241,7 +250,8 @@ fn detect_stable_onset(windows: &[ScoredWindow], active_threshold: f64) -> Optio
             .iter()
             .filter(|window| window.similarity >= active_threshold)
             .count();
-        if active_windows >= STABLE_ACTIVE_WINDOWS && windows[index].similarity >= active_threshold {
+        if active_windows >= STABLE_ACTIVE_WINDOWS && windows[index].similarity >= active_threshold
+        {
             Some(index)
         } else {
             None

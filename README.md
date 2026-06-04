@@ -30,21 +30,53 @@ deployments/             # Docker, compose, config profiles
 
 ## Core Algorithms
 
-- **Overlapping chunking**: each video is split into windows of length `L` with overlap `O`, so chunk `i` covers `[i(L-O), i(L-O)+L]`. The overlap reduces boundary loss when an event spans two chunks.
-- **Cross-modal retrieval**: every chunk and every query are embedded into the same vector space. Search ranks chunks by cosine similarity
+- **Overlapping chunking**: each video is split into windows of length `L` with overlap `O`, so chunk `i` covers `[i(L-O), i(L-O)+L]`. In the current CLI defaults, `L = 6s` and `O = 2s`. The overlap reduces boundary loss when an event straddles two chunks.
 
-  `cos(x, q) = (x · q) / (||x|| ||q||)`
+- **Preprocessed retrieval inputs**: before embedding, chunks can be downscaled and reduced in frame rate. The current defaults are `480p` and `4 fps`, which keep the retrieval signal while lowering embedding cost.
 
-  where `x` is a stored chunk embedding and `q` is the query embedding.
-- **Confidence filtering**: results below the configured threshold `tau` are dropped, so the returned set is
+- **Unit-normalized embeddings**: every stored embedding and every query embedding is normalized to unit length. For a vector `x`,
 
-  `R = {x : cos(x, q) >= tau}`.
+  `x_hat = x / ||x||`
+
+  and zero-norm vectors are rejected. Because of that normalization, cosine similarity reduces to a dot product:
+
+  `sim(x_hat, q_hat) = x_hat · q_hat`
+
+- **Multi-query semantic retrieval**: text search does not rely on a single query embedding. The query is first expanded into multiple semantically related search phrasings, each phrasing is embedded, and each embedding retrieves candidate chunks from the vector store.
+
+- **Reciprocal-rank fusion over expanded queries**: if a chunk appears in several per-query result lists, Boomerang merges those hits and scores them by consensus, not just by a single best match. For rank `r` and fusion constant `k`,
+
+  `rrf(r) = 1 / (k + r + 1)`
+
+  and the final retrieval ranking is the sum of those reciprocal-rank contributions across query variants. The highest raw similarity is also preserved per chunk.
+
+- **Thresholded candidate set**: after fusion, chunks whose best similarity is below the configured threshold `tau` are removed:
+
+  `R = {x : max_j sim(x, q_j) >= tau}`
+
+  where `q_j` are the expanded query embeddings.
+
+- **Two temporal refinement modes**:
+  - `exact`: after coarse retrieval, Boomerang re-extracts short local windows around the top hits, embeds those windows, and returns the earliest stable onset that stays relevant across nearby micro-windows. This is for queries like `everyone got seated` or `door closed`.
+  - `span`: after coarse retrieval, Boomerang fetches neighboring indexed chunks from the same source file and searches for the best contiguous interval around the anchor hit.
+
+- **Span refinement scoring**: in `span` mode, each neighboring chunk is rescored against the query embedding set using a fused score
+
+  `fused(c) = 0.75 * max_j sim(c, q_j) + 0.25 * mean_j sim(c, q_j)`
+
+  and Boomerang picks the contiguous interval with the best aggregate gain above a threshold-derived baseline, capped at `24s`.
+
+- **Exact-moment refinement**: in `exact` mode, Boomerang rescans only the top coarse hits using `1.0s` windows with `0.5s` stride, then selects the earliest window where relevance becomes stable across a short lookahead. This avoids returning too much lead-in context before the event actually happens.
+
+- **Result materialization**: search returns timestamps and can immediately trim clips from the source footage, so retrieval is operational rather than just analytical.
 
 - **Highlight scoring**:
   - `centroid`: anomaly score is distance from the normalized corpus mean `mu`, so `s(x) = 1 - x · mu`
   - `knn`: anomaly score is the mean cosine distance to the `k` nearest neighbors
   - `lof`: anomaly score is Local Outlier Factor, comparing local density around a point to the density of its neighbors
-- **Index isolation**: embeddings are stored per `(backend, model, dimensions)` space, so incompatible vectors never mix.
+  - `local-contrast`: anomaly score is deviation from the temporally local neighborhood within the same source video, so unusual moments relative to nearby context can surface even if they are not globally rare
+
+- **Index isolation**: embeddings are stored per `(backend, model, dimensions)` space, so incompatible vectors never mix and searches cannot silently compare vectors from different embedding spaces.
 
 ## Commands
 

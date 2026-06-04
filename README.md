@@ -22,31 +22,23 @@
 
 - **Unit-normalized embeddings**: every stored embedding and every query embedding is normalized to unit length. For a vector `x`,
 
-  ```text
-  x_hat = x / ||x||
-  ```
+  <img src="docs/equations/unit_normalization.svg" alt="x hat equals x divided by norm of x" height="52" />
 
   and zero-norm vectors are rejected. Because of that normalization, cosine similarity reduces to a dot product:
 
-  ```text
-  sim(x_hat, q_hat) = x_hat · q_hat
-  ```
+  <img src="docs/equations/cosine_similarity.svg" alt="similarity of x hat and q hat equals x hat dot q hat" height="44" />
 
 - **Multi-query semantic retrieval**: text search does not rely on a single query embedding. The query is first expanded into multiple semantically related search phrasings, each phrasing is embedded, and each embedding retrieves candidate chunks from the vector store.
 
 - **Reciprocal-rank fusion over expanded queries**: if a chunk appears in several per-query result lists, Boomerang merges those hits and scores them by consensus, not just by a single best match. For rank `r` and fusion constant `k`,
 
-  ```text
-  rrf(r) = 1 / (k + r + 1)
-  ```
+  <img src="docs/equations/rrf.svg" alt="rrf of r equals one over k plus r plus one" height="52" />
 
   and the final retrieval ranking is the sum of those reciprocal-rank contributions across query variants. The highest raw similarity is also preserved per chunk.
 
 - **Thresholded candidate set**: after fusion, chunks whose best similarity is below the configured threshold `tau` are removed:
 
-  ```text
-  R = {x | max_j sim(x, q_j) >= tau}
-  ```
+  <img src="docs/equations/thresholded_candidate_set.svg" alt="R equals the set of x such that max over j of similarity of x and q sub j is at least tau" height="52" />
 
   where `q_j` are the expanded query embeddings.
 
@@ -56,9 +48,7 @@
 
 - **Span refinement scoring**: in `span` mode, each neighboring chunk is rescored against the query embedding set using a fused score
 
-  ```text
-  fused(c) = 0.75 * max_j sim(c, q_j) + 0.25 * mean_j sim(c, q_j)
-  ```
+  <img src="docs/equations/span_fused_score.svg" alt="fused of c equals point seventy five times max over j of similarity of c and q sub j plus point twenty five times mean over j of similarity of c and q sub j" height="52" />
 
   and Boomerang picks the contiguous interval with the best aggregate gain above a threshold-derived baseline, capped at `24s`.
 
@@ -69,9 +59,7 @@
 - **Highlight scoring**:
   - `centroid`: anomaly score is distance from the normalized corpus mean `mu`, so
 
-    ```text
-    s(x) = 1 - x · mu
-    ```
+    <img src="docs/equations/centroid_anomaly.svg" alt="s of x equals one minus x dot mu" height="40" />
   - `knn`: anomaly score is the mean cosine distance to the `k` nearest neighbors
   - `lof`: anomaly score is Local Outlier Factor, comparing local density around a point to the density of its neighbors
   - `local-contrast`: anomaly score is deviation from the temporally local neighborhood within the same source video, so unusual moments relative to nearby context can surface even if they are not globally rare

@@ -7,28 +7,14 @@
 </div>
 
 
-## Project Structure
-
-```
-crates/
-├── boomerang-core/      # Domain types, shared traits
-├── video-chunking/      # Video processing
-├── semantic-embed/      # Embedding backends
-├── vector-store/        # Vector storage 
-├── footage-search/      # Semantic search + ranking
-├── clip-trim/           # Clip extraction
-└── boomerang-cli/       # CLI application 
-deployments/             # Docker, compose, config profiles
-```
-
-## Architecture Patterns
+## Architecture
 
 - **Traits for polymorphism**: `Embedder`, `VectorStore`, `Chunker` are traits with multiple backends.
 - **Newtypes for safety**: `ChunkId`, `CameraId`, `Resolution` wrap primitives.
 - **Builder pattern** for complex construction (3+ optional fields).
 - **Config is environment-driven**: `.env` files with `${ENV_VAR}` substitution.
 
-## Core Algorithms
+## Algorithms
 
 - **Overlapping chunking**: each video is split into windows of length `L` with overlap `O`, so chunk `i` covers `[i(L-O), i(L-O)+L]`. In the current CLI defaults, `L = 6s` and `O = 2s`. The overlap reduces boundary loss when an event straddles two chunks.
 

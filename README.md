@@ -36,23 +36,31 @@ deployments/             # Docker, compose, config profiles
 
 - **Unit-normalized embeddings**: every stored embedding and every query embedding is normalized to unit length. For a vector `x`,
 
-  `x_hat = x / ||x||`
+  $$
+  \hat{x} = \frac{x}{\lVert x \rVert}
+  $$
 
   and zero-norm vectors are rejected. Because of that normalization, cosine similarity reduces to a dot product:
 
-  `sim(x_hat, q_hat) = x_hat · q_hat`
+  $$
+  \mathrm{sim}(\hat{x}, \hat{q}) = \hat{x} \cdot \hat{q}
+  $$
 
 - **Multi-query semantic retrieval**: text search does not rely on a single query embedding. The query is first expanded into multiple semantically related search phrasings, each phrasing is embedded, and each embedding retrieves candidate chunks from the vector store.
 
 - **Reciprocal-rank fusion over expanded queries**: if a chunk appears in several per-query result lists, Boomerang merges those hits and scores them by consensus, not just by a single best match. For rank `r` and fusion constant `k`,
 
-  `rrf(r) = 1 / (k + r + 1)`
+  $$
+  \mathrm{rrf}(r) = \frac{1}{k + r + 1}
+  $$
 
   and the final retrieval ranking is the sum of those reciprocal-rank contributions across query variants. The highest raw similarity is also preserved per chunk.
 
 - **Thresholded candidate set**: after fusion, chunks whose best similarity is below the configured threshold `tau` are removed:
 
-  `R = {x : max_j sim(x, q_j) >= tau}`
+  $$
+  R = \{x \mid \max_j \mathrm{sim}(x, q_j) \ge \tau\}
+  $$
 
   where `q_j` are the expanded query embeddings.
 
@@ -62,7 +70,9 @@ deployments/             # Docker, compose, config profiles
 
 - **Span refinement scoring**: in `span` mode, each neighboring chunk is rescored against the query embedding set using a fused score
 
-  `fused(c) = 0.75 * max_j sim(c, q_j) + 0.25 * mean_j sim(c, q_j)`
+  $$
+  \mathrm{fused}(c) = 0.75 \cdot \max_j \mathrm{sim}(c, q_j) + 0.25 \cdot \mathrm{mean}_j\, \mathrm{sim}(c, q_j)
+  $$
 
   and Boomerang picks the contiguous interval with the best aggregate gain above a threshold-derived baseline, capped at `24s`.
 
@@ -71,7 +81,11 @@ deployments/             # Docker, compose, config profiles
 - **Result materialization**: search returns timestamps and can immediately trim clips from the source footage, so retrieval is operational rather than just analytical.
 
 - **Highlight scoring**:
-  - `centroid`: anomaly score is distance from the normalized corpus mean `mu`, so `s(x) = 1 - x · mu`
+  - `centroid`: anomaly score is distance from the normalized corpus mean `\mu`, so
+
+    $$
+    s(x) = 1 - x \cdot \mu
+    $$
   - `knn`: anomaly score is the mean cosine distance to the `k` nearest neighbors
   - `lof`: anomaly score is Local Outlier Factor, comparing local density around a point to the density of its neighbors
   - `local-contrast`: anomaly score is deviation from the temporally local neighborhood within the same source video, so unusual moments relative to nearby context can surface even if they are not globally rare

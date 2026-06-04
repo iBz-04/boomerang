@@ -3,7 +3,7 @@
 //! Provides the `Embedder` trait implementation for:
 //! - Gemini Embedding API (default)
 //! - Qwen Cloud (DashScope)
-//! - Local Qwen3-VL model (future)
+//! - Local Qwen3-VL model (to do :))
 
 pub mod gemini;
 pub mod query_expand;

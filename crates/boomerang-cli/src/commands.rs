@@ -19,7 +19,7 @@ pub async fn init() -> Result<()> {
 
     let gemini_key = std::env::var("GEMINI_API_KEY").ok();
     if gemini_key.is_none() {
-        info!("GEMINI_API_KEY not set. Set it in .env or your environment.");
+        info!("GEMINI_API_KEY not set.");
         info!("Get a key at https://aistudio.google.com/apikey");
     } else {
         info!("GEMINI_API_KEY found.");
@@ -116,7 +116,6 @@ pub async fn index(args: IndexArgs) -> Result<()> {
 
         let total = chunks.len();
         for (i, chunk) in chunks.iter().enumerate() {
-            // Still-frame detection
             if !config.skip_still_detection {
                 let chunk_p = Path::new(&chunk.chunk_path);
                 if video_chunking::still_frame::is_still_frame(chunk_p, 0.98).await? {
@@ -125,19 +124,16 @@ pub async fn index(args: IndexArgs) -> Result<()> {
                 }
             }
 
-            // Preprocess
             let chunk_p = Path::new(&chunk.chunk_path);
             let processed = video_chunking::chunker::preprocess_chunk(chunk_p, &config)
                 .await
                 .context("preprocessing failed")?;
 
-            // Embed
             let embedding = embedder
                 .embed_video(&processed.to_string_lossy())
                 .await
                 .context(format!("failed to embed chunk {}/{}", i + 1, total))?;
 
-            // Store
             let metadata = boomerang_core::chunk::ChunkMetadata {
                 source_file: chunk.source_file.clone(),
                 start_time: chunk.time_range.start,

@@ -178,7 +178,6 @@ fn score_knn(xn: &Array2<f32>, k: usize) -> Vec<f32> {
     scores
 }
 
-/// Score by Local Outlier Factor.
 fn score_lof(xn: &Array2<f32>, k: usize) -> Vec<f32> {
     let n = xn.nrows();
     let k = k.max(2).min(n.saturating_sub(1));
@@ -188,7 +187,6 @@ fn score_lof(xn: &Array2<f32>, k: usize) -> Vec<f32> {
 
     let d = cosine_distance_matrix(xn);
 
-    // Find k-nearest neighbors for each point
     let mut knn_indices: Vec<Vec<usize>> = Vec::with_capacity(n);
     let mut k_dist: Vec<f32> = Vec::with_capacity(n);
 
@@ -205,7 +203,6 @@ fn score_lof(xn: &Array2<f32>, k: usize) -> Vec<f32> {
         knn_indices.push(indices);
     }
 
-    // Compute reachability distance and LRD
     let mut lrd = vec![0.0f32; n];
     for i in 0..n {
         let mut sum_reach = 0.0f32;

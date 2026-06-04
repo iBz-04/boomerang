@@ -10,8 +10,9 @@ use boomerang_core::search::{HighlightConfig, SearchConfig};
 use boomerang_core::types::EmbeddingSpace;
 use tracing::info;
 
+use crate::exact_refine::refine_search_results_exact;
 use crate::temporal_refine::refine_search_results;
-use crate::{HighlightsArgs, ImgArgs, IndexArgs, RemoveArgs, SearchArgs};
+use crate::{HighlightsArgs, ImgArgs, IndexArgs, RemoveArgs, SearchArgs, SearchMatchMode};
 
 /// Initialize configuration and validate API keys.
 pub async fn init() -> Result<()> {
@@ -194,8 +195,15 @@ pub async fn search(args: SearchArgs) -> Result<()> {
     let results =
         footage_search::search_by_embeddings(store.as_ref(), &embedding_refs, &search_config)
             .await?;
-    let results =
-        refine_search_results(results, &embeddings, store.as_ref(), args.threshold).await?;
+    let results = match args.match_mode {
+        SearchMatchMode::Exact => {
+            refine_search_results_exact(results, &embeddings, embedder.as_ref(), args.threshold)
+                .await?
+        }
+        SearchMatchMode::Span => {
+            refine_search_results(results, &embeddings, store.as_ref(), args.threshold).await?
+        }
+    };
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");
@@ -256,13 +264,19 @@ pub async fn img(args: ImgArgs) -> Result<()> {
         footage_search::search_by_image(store.as_ref(), image_embedding.as_slice(), &search_config)
             .await?;
     let image_query_embeddings = vec![image_embedding.clone()];
-    let results = refine_search_results(
-        results,
-        &image_query_embeddings,
-        store.as_ref(),
-        args.threshold,
-    )
-    .await?;
+    let results = match args.match_mode {
+        SearchMatchMode::Exact => refine_search_results_exact(
+            results,
+            &image_query_embeddings,
+            embedder.as_ref(),
+            args.threshold,
+        )
+        .await?,
+        SearchMatchMode::Span => {
+            refine_search_results(results, &image_query_embeddings, store.as_ref(), args.threshold)
+                .await?
+        }
+    };
 
     if results.is_empty() {
         info!(space = %render_space(&embedding_space), "no results found");

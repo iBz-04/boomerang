@@ -4,9 +4,10 @@
 //! parsing, logging setup, and command dispatch.
 
 mod commands;
+mod exact_refine;
 mod temporal_refine;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::EnvFilter;
 
 /// Semantic search over video footage. Type what you're looking for, get a trimmed clip back.
@@ -126,6 +127,10 @@ struct SearchArgs {
     /// Burn Tesla metadata overlay onto clips.
     #[arg(long)]
     overlay: bool,
+
+    /// Temporal match mode: exact returns the earliest stable moment, span keeps broader context.
+    #[arg(long, value_enum, default_value_t = SearchMatchMode::Exact)]
+    match_mode: SearchMatchMode,
 }
 
 #[derive(clap::Args)]
@@ -164,6 +169,16 @@ struct ImgArgs {
     /// Deduplication threshold.
     #[arg(long)]
     dedupe: Option<f64>,
+
+    /// Temporal match mode: exact returns the earliest stable moment, span keeps broader context.
+    #[arg(long, value_enum, default_value_t = SearchMatchMode::Exact)]
+    match_mode: SearchMatchMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SearchMatchMode {
+    Exact,
+    Span,
 }
 
 #[derive(clap::Args)]

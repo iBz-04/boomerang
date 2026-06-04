@@ -131,6 +131,18 @@ cargo run -p boomerang-cli -- search "everyone got seated" --match-mode exact
 cargo run -p boomerang-cli -- search "people entering the theater" --match-mode span
 ```
 
+### Demo Query
+
+Use this exact-moment query when the target scene is “all people are seated and no one is standing”:
+
+```bash
+cargo run -p boomerang-cli -- search "all people are seated no one is standing" --match-mode exact
+```
+
+Reference scene:
+
+![Seated scene demo](/scene.png)
+
 
 ## Testing
 
